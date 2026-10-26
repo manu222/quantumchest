@@ -1,0 +1,79 @@
+{
+  "variants": {
+    "facing=north,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic"
+    },
+    "facing=east,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic",
+      "y": 90
+    },
+    "facing=south,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic",
+      "y": 180
+    },
+    "facing=west,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic",
+      "y": 270
+    },
+    "facing=north,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced"
+    },
+    "facing=east,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced",
+      "y": 90
+    },
+    "facing=south,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced",
+      "y": 180
+    },
+    "facing=west,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced",
+      "y": 270
+    },
+    "facing=north,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced"
+    },
+    "facing=east,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced",
+      "y": 90
+    },
+    "facing=south,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced",
+      "y": 180
+    },
+    "facing=west,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced",
+      "y": 270
+    },
+    "facing=north,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite"
+    },
+    "facing=east,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite",
+      "y": 90
+    },
+    "facing=south,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite",
+      "y": 180
+    },
+    "facing=west,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite",
+      "y": 270
+    },
+    "facing=north,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum"
+    },
+    "facing=east,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum",
+      "y": 90
+    },
+    "facing=south,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum",
+      "y": 180
+    },
+    "facing=west,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum",
+      "y": 270
+    }
+  }
+}

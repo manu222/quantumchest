@@ -1,0 +1,14 @@
+{
+  "block.quantumchest.quantum_chest": "Cofre cuántico",
+  "itemGroup.quantumchest": "QuantumChest",
+  "tier.quantumchest.basic": "Básico",
+  "tier.quantumchest.reinforced": "Reforzado",
+  "tier.quantumchest.advanced": "Avanzado",
+  "tier.quantumchest.elite": "Élite",
+  "tier.quantumchest.quantum": "Cuántico",
+  "message.quantumchest.stored": "Guardado: %s × %s",
+  "message.quantumchest.full": "El cofre está lleno",
+  "message.quantumchest.empty": "El cofre está vacío",
+  "message.quantumchest.unlimited": "ilimitado",
+  "message.quantumchest.summary": "Cofre %s · %s / %s items · %s tipos"
+}

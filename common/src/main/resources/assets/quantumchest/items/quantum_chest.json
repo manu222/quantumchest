@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "quantumchest:block/quantum_chest_basic"
+  }
+}

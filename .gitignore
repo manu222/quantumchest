@@ -1,0 +1,32 @@
+# Gradle
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ
+.idea/*
+!.idea/scopes
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse / VS Code
+bin/
+.classpath
+.project
+.settings/
+.vscode/
+
+# Dev runs
+run/
+runs/
+src/generated/**/.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Personal notes, not part of the repo
+notas/

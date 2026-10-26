@@ -1,0 +1,17 @@
+plugins {
+    id 'groovy-gradle-plugin'
+}
+
+repositories {
+    gradlePluginPortal()
+    maven { url = 'https://maven.neoforged.net/releases' }
+    maven { url = 'https://maven.minecraftforge.net/' }
+}
+
+// Both loader toolchains live here so every subproject gets them from the same classloader
+dependencies {
+    // https://projects.neoforged.net/neoforged/moddevgradle
+    implementation 'net.neoforged.moddev:net.neoforged.moddev.gradle.plugin:2.0.148'
+    // https://plugins.gradle.org/plugin/net.minecraftforge.gradle
+    implementation 'net.minecraftforge.gradle:net.minecraftforge.gradle.gradle.plugin:7.0.40'
+}

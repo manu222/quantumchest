@@ -1,0 +1,106 @@
+package com.manuelaraujo.quantumchest.storage;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.world.item.ItemStack;
+
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Item storage without slots: a map from item type to amount.
+ * This class knows nothing about blocks or worlds, so it can be shared
+ * later by linked chests and the remote terminal.
+ */
+public final class QuantumInventory {
+    private final Map<ItemKey, Long> items = new LinkedHashMap<>();
+    private long total;
+
+    /**
+     * Stores as much of the stack as fits under the capacity.
+     * Does not touch the stack, returns how many items were taken.
+     */
+    public long insert(ItemStack stack, long capacity) {
+        if (stack.isEmpty()) return 0;
+        long space = capacity - total;
+        long amount = Math.min(stack.getCount(), space);
+        if (amount <= 0) return 0;
+        items.merge(ItemKey.of(stack), amount, Long::sum);
+        total += amount;
+        return amount;
+    }
+
+    /** Takes up to {@code max} items of the given type, capped at one stack. */
+    public ItemStack extract(ItemKey key, long max) {
+        Long stored = items.get(key);
+        if (stored == null || max <= 0) return ItemStack.EMPTY;
+        int amount = (int) Math.min(Math.min(stored, max), key.maxStackSize());
+        if (amount == stored) {
+            items.remove(key);
+        } else {
+            items.put(key, stored - amount);
+        }
+        total -= amount;
+        return key.toStack(amount);
+    }
+
+    /** Oldest stored type, handy until the real interface exists. */
+    public ItemKey firstKey() {
+        return items.isEmpty() ? null : items.keySet().iterator().next();
+    }
+
+    public long count(ItemKey key) {
+        return items.getOrDefault(key, 0L);
+    }
+
+    public long totalItems() {
+        return total;
+    }
+
+    public int typeCount() {
+        return items.size();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+
+    public Map<ItemKey, Long> view() {
+        return Collections.unmodifiableMap(items);
+    }
+
+    public void clear() {
+        items.clear();
+        total = 0;
+    }
+
+    public Iterable<Entry> entries() {
+        return items.entrySet().stream()
+                .map(e -> new Entry(e.getKey().template(), e.getValue()))
+                .toList();
+    }
+
+    public void load(Iterable<Entry> saved) {
+        clear();
+        for (Entry entry : saved) {
+            if (entry.stack().isEmpty() || entry.count() <= 0) continue;
+            items.merge(ItemKey.of(entry.stack()), entry.count(), QuantumInventory::addCapped);
+            total = addCapped(total, entry.count());
+        }
+    }
+
+    // A hand edited save could push the sum past Long.MAX_VALUE
+    private static long addCapped(long a, long b) {
+        long r = a + b;
+        return r < 0 ? Long.MAX_VALUE : r;
+    }
+
+    /** What gets written to disk for each item type. */
+    public record Entry(ItemStack stack, long count) {
+        public static final Codec<Entry> CODEC = RecordCodecBuilder.create(i -> i.group(
+                ItemStack.CODEC.fieldOf("item").forGetter(Entry::stack),
+                Codec.LONG.fieldOf("count").forGetter(Entry::count)
+        ).apply(i, Entry::new));
+    }
+}

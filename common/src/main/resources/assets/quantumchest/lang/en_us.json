@@ -1,0 +1,14 @@
+{
+  "block.quantumchest.quantum_chest": "Quantum Chest",
+  "itemGroup.quantumchest": "QuantumChest",
+  "tier.quantumchest.basic": "Basic",
+  "tier.quantumchest.reinforced": "Reinforced",
+  "tier.quantumchest.advanced": "Advanced",
+  "tier.quantumchest.elite": "Elite",
+  "tier.quantumchest.quantum": "Quantum",
+  "message.quantumchest.stored": "Stored %s × %s",
+  "message.quantumchest.full": "The chest is full",
+  "message.quantumchest.empty": "The chest is empty",
+  "message.quantumchest.unlimited": "unlimited",
+  "message.quantumchest.summary": "%s chest · %s / %s items · %s types"
+}

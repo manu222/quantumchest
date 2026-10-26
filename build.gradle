@@ -1,0 +1,2 @@
+// The loader plugins (ModDevGradle and ForgeGradle) are declared in buildSrc,
+// so both share the same classloader. Nothing else is needed here.
