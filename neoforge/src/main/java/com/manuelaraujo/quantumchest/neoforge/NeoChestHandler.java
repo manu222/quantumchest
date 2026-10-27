@@ -1,10 +1,7 @@
 package com.manuelaraujo.quantumchest.neoforge;
 
 import com.manuelaraujo.quantumchest.automation.ChestPort;
-import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
-import com.manuelaraujo.quantumchest.storage.ItemKey;
-import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.transfer.ResourceHandler;
@@ -51,7 +48,7 @@ final class NeoChestHandler implements ResourceHandler<ItemResource> {
 
     @Override
     public long getCapacityAsLong(int index, ItemResource resource) {
-        return port.mode() == FaceMode.IMPORT ? Integer.MAX_VALUE : port.amount(index);
+        return port.mode().acceptsInput() ? Integer.MAX_VALUE : port.amount(index);
     }
 
     @Override
@@ -66,32 +63,38 @@ final class NeoChestHandler implements ResourceHandler<ItemResource> {
         ItemStack template = resource.toStack(1);
         if (port.insert(template, amount, true).total() <= 0) return 0;
         journal.updateSnapshots(transaction);
-        QuantumStorage.Accepted done = port.insert(template, amount, false);
-        journal.record(template, done.stored());
+        QuantumChestBlockEntity.Routed done = port.insert(template, amount, false);
+        journal.record(template, done.stored(), done.buffered());
         return (int) done.total();
     }
 
     @Override
     public int extract(int index, ItemResource resource, int amount, TransactionContext transaction) {
         TransferPreconditions.checkNonEmptyNonNegative(resource, amount);
-        ItemKey key = port.keyAt(index);
-        if (key == null || amount == 0 || !resource.matches(key.template())) return 0;
+        ItemStack inSlot = port.get(index);
+        if (inSlot.isEmpty() || amount == 0 || !resource.matches(inSlot)) return 0;
         if (port.extract(index, amount, true).isEmpty()) return 0;
+        boolean fromBuffer = port.ejects();
         journal.updateSnapshots(transaction);
         ItemStack taken = port.extract(index, amount, false);
-        journal.record(taken.copyWithCount(1), -taken.getCount());
+        if (fromBuffer) {
+            journal.record(taken.copyWithCount(1), 0, -taken.getCount());
+        } else {
+            journal.record(taken.copyWithCount(1), -taken.getCount(), 0);
+        }
         return taken.getCount();
     }
 
-    private record Change(ItemStack template, long stored) {
+    /** What one call changed: items added to (positive) or taken from (negative) the storage and the reject buffer. */
+    private record Change(ItemStack template, long stored, long buffered) {
     }
 
     /** The snapshot is how many changes had happened; going back undoes the ones after it. */
     private final class Journal extends SnapshotJournal<Integer> {
         private final List<Change> changes = new ArrayList<>();
 
-        void record(ItemStack template, long stored) {
-            if (stored != 0) changes.add(new Change(template, stored));
+        void record(ItemStack template, long stored, long buffered) {
+            if (stored != 0 || buffered != 0) changes.add(new Change(template, stored, buffered));
         }
 
         @Override
@@ -103,7 +106,7 @@ final class NeoChestHandler implements ResourceHandler<ItemResource> {
         protected void revertToSnapshot(Integer snapshot) {
             for (int i = changes.size() - 1; i >= snapshot; i--) {
                 Change change = changes.remove(i);
-                port.undo(change.template(), change.stored());
+                port.undo(change.template(), change.stored(), change.buffered());
             }
         }
 

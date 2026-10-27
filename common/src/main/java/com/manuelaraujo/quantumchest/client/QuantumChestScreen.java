@@ -1,22 +1,24 @@
 package com.manuelaraujo.quantumchest.client;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
-import com.manuelaraujo.quantumchest.automation.ChestAutomation;
-import com.manuelaraujo.quantumchest.automation.FaceMode;
-import com.manuelaraujo.quantumchest.automation.FaceSetting;
 import com.manuelaraujo.quantumchest.block.ChestTier;
+import com.manuelaraujo.quantumchest.client.panel.CompactPanel;
+import com.manuelaraujo.quantumchest.client.panel.FacesPanel;
+import com.manuelaraujo.quantumchest.client.panel.FilterPanel;
+import com.manuelaraujo.quantumchest.client.panel.MagnetPanel;
+import com.manuelaraujo.quantumchest.client.panel.Panel;
+import com.manuelaraujo.quantumchest.client.panel.VoidPanel;
 import com.manuelaraujo.quantumchest.menu.ClickAction;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.ClickPayload;
-import com.manuelaraujo.quantumchest.network.SetFacePayload;
 import com.manuelaraujo.quantumchest.network.SetTabsPayload;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
 import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.manuelaraujo.quantumchest.storage.CustomTab;
+import com.manuelaraujo.quantumchest.storage.FilterRules;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
-import com.manuelaraujo.quantumchest.storage.TabRole;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -26,7 +28,6 @@ import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -45,6 +46,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Predicate;
 
 /**
@@ -53,11 +56,12 @@ import java.util.function.Predicate;
  * slots: it draws whatever {@link QuantumChestMenu#clientItems()} holds and
  * sends clicks to the server as packets.
  *
- * Four modes share the panel: normal use, editing a custom tab (the grid
- * becomes a picker), the member list of a private chest and the faces of the
- * I/O upgrade.
+ * Several modes share the panel: normal use, editing a custom tab (the grid
+ * becomes a picker), the member list of a private chest, and the settings
+ * panels of the filter and the upgrades (see {@link Panel}). Each upgrade
+ * that has settings gets a gear button next to its slot.
  */
-public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu> {
+public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu> implements Panel.Host {
     private static final Identifier TEXTURE = QuantumChest.id("textures/gui/quantum_chest.png");
     private static final Identifier SCROLLER = Identifier.withDefaultNamespace("container/creative_inventory/scroller");
     private static final Identifier SCROLLER_DISABLED = Identifier.withDefaultNamespace("container/creative_inventory/scroller_disabled");
@@ -75,19 +79,17 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private static final int SIDE_A_Y = 48;
     private static final int SIDE_B_Y = 68;
     private static final int SIDE_C_Y = 88;
-    private static final int SIDE_D_Y = 108;
-    // Faces panel: one row per face, a mode button and an export tab button
-    private static final int FACE_MODE_X = GRID_X + 62;
-    private static final int FACE_TAB_X = GRID_X + 112;
-    private static final int FACE_BUTTON_W = 48;
     private static final int INFO_Y = 129;
     private static final int TAB_Y = -22;
     private static final int TAB_W = 22;
     private static final int ARROW_W = 12;
     // The tab row sits above the panel, so move the panel down a bit to make room
     private static final int TAB_ROOM = 11;
+    // Gear buttons, to the right of each upgrade slot
+    private static final int GEAR_X = QuantumChestMenu.UPGRADE_X + 19;
+    private static final int GEAR_SIZE = 11;
 
-    private enum Mode { NORMAL, EDIT_TAB, MEMBERS, FACES }
+    private enum Mode { NORMAL, EDIT_TAB, MEMBERS, PANEL }
 
     // Remembered while the game is running, so every chest opens the same way
     private static SortMode sortMode = SortMode.AMOUNT;
@@ -101,9 +103,11 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private EditBox nameBox;
     private EditBox tagsBox;
     private EditBox memberBox;
-    private EditBox limitBox;
+    private EditBox numberBox;
 
     private Mode mode = Mode.NORMAL;
+    private Panel panel;
+    private String searchBeforePanel = "";
     private List<ChestTabs.Tab> tabs = List.of();
     private String selectedTab = lastTabKey;
     private int tabPage;
@@ -115,12 +119,15 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private boolean scrolling;
     private boolean wasMouseDown;
     private int hoveredIndex = -1;
+    private int ticks;
+
+    // Typing a number in a panel: where the box is and who gets the value
+    private LongConsumer numberTarget;
 
     // Tab editor
     private int editIndex = -1;
     private final Set<Identifier> editItems = new LinkedHashSet<>();
     private ItemStack editIcon = ItemStack.EMPTY;
-    private TabRole editRole = TabRole.NORMAL;
 
     public QuantumChestScreen(QuantumChestMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title, 195, 222);
@@ -138,7 +145,9 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         nameBox = box(9, INFO_Y, 78, CustomTab.MAX_NAME, "gui.quantumchest.edit.name");
         tagsBox = box(93, INFO_Y, 94, 200, "gui.quantumchest.edit.tags");
         memberBox = box(9, INFO_Y, 150, 16, "gui.quantumchest.members.add");
-        limitBox = box(116, 6, 54, 18, "gui.quantumchest.edit.limit");
+        numberBox = box(0, 0, 30, 18, "gui.quantumchest.number.hint");
+        numberBox.setVisible(false);
+        numberTarget = null;
         setMode(mode);
         listDirty = true;
     }
@@ -153,14 +162,27 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         return box;
     }
 
+    private List<EditBox> boxes() {
+        return List.of(searchBox, nameBox, tagsBox, memberBox, numberBox);
+    }
+
     private void setMode(Mode newMode) {
+        if (mode == Mode.PANEL && newMode != Mode.PANEL && panel != null) {
+            // Back from a panel with its own search: give the item search back
+            if (panel.searchHint() != null) searchBox.setValue(searchBeforePanel);
+            panel = null;
+        }
         mode = newMode;
+        cancelNumber();
         nameBox.setVisible(mode == Mode.EDIT_TAB);
         tagsBox.setVisible(mode == Mode.EDIT_TAB);
         memberBox.setVisible(mode == Mode.MEMBERS);
-        searchBox.setVisible(!panelMode());
-        updateLimitBox();
-        for (EditBox box : List.of(nameBox, tagsBox, memberBox, searchBox, limitBox)) {
+        boolean panelSearch = mode == Mode.PANEL && panel != null && panel.searchHint() != null;
+        searchBox.setVisible(mode == Mode.NORMAL || mode == Mode.EDIT_TAB || panelSearch);
+        searchBox.setWidth(panelSearch ? 116 : 160);
+        searchBox.setHint(Component.translatable(panelSearch ? panel.searchHint() : "gui.quantumchest.search")
+                .withStyle(ChatFormatting.DARK_GRAY));
+        for (EditBox box : boxes()) {
             if (!box.isVisible() && box.isFocused()) {
                 box.setFocused(false);
                 setFocused(null);
@@ -169,26 +191,76 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         listDirty = true;
     }
 
-    /** The two modes that replace the grid with a panel. */
+    private void openPanel(Panel newPanel) {
+        if (mode == Mode.PANEL && panel != null && panel.getClass() == newPanel.getClass()) {
+            setMode(Mode.NORMAL);
+            return;
+        }
+        if (mode == Mode.PANEL) setMode(Mode.NORMAL);
+        panel = newPanel;
+        if (panel.searchHint() != null) {
+            searchBeforePanel = searchBox.getValue();
+            searchBox.setValue("");
+        }
+        setMode(Mode.PANEL);
+    }
+
+    /** The modes that replace the grid. */
     private boolean panelMode() {
-        return mode == Mode.MEMBERS || mode == Mode.FACES;
-    }
-
-    /** The limit box only exists for destroy and compact tabs, and shares the top row with the search. */
-    private void updateLimitBox() {
-        boolean show = mode == Mode.EDIT_TAB && editRole.usesLimit();
-        limitBox.setVisible(show);
-        searchBox.setWidth(show ? 100 : 160);
-        limitBox.setHint(Component.translatable(editRole == TabRole.COMPACT
-                ? "gui.quantumchest.edit.limit.compact" : "gui.quantumchest.edit.limit.void").withStyle(ChatFormatting.DARK_GRAY));
-    }
-
-    private boolean facesAvailable() {
-        return menu.clientFaces().editable() && menu.hasIoUpgrade();
+        return mode == Mode.MEMBERS || mode == Mode.PANEL;
     }
 
     private SyncStatePayload.Access access() {
         return menu.clientAccess();
+    }
+
+    // ---- Panel.Host --------------------------------------------------------
+
+    @Override
+    public boolean canManage() {
+        return access().canManage();
+    }
+
+    @Override
+    public int ticks() {
+        return ticks;
+    }
+
+    @Override
+    public void editNumber(int x, int y, int width, long value, LongConsumer onDone) {
+        numberTarget = onDone;
+        numberBox.setX(leftPos + x + 2);
+        numberBox.setY(topPos + y + 2);
+        numberBox.setWidth(width - 3);
+        numberBox.setValue(Long.toString(value));
+        numberBox.setVisible(true);
+        setFocused(numberBox);
+        numberBox.setFocused(true);
+    }
+
+    private void commitNumber() {
+        if (numberTarget == null) return;
+        String digits = numberBox.getValue().replaceAll("\\D", "");
+        LongConsumer target = numberTarget;
+        cancelNumber();
+        if (digits.isEmpty()) return;
+        long value;
+        try {
+            value = Long.parseLong(digits);
+        } catch (NumberFormatException tooBig) {
+            value = Long.MAX_VALUE;
+        }
+        target.accept(value);
+    }
+
+    private void cancelNumber() {
+        numberTarget = null;
+        if (numberBox == null) return;
+        numberBox.setVisible(false);
+        if (numberBox.isFocused()) {
+            numberBox.setFocused(false);
+            setFocused(null);
+        }
     }
 
     // ---- the item list -----------------------------------------------------
@@ -196,7 +268,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     @Override
     protected void containerTick() {
         super.containerTick();
-        if (mode == Mode.FACES && !facesAvailable()) setMode(Mode.NORMAL);
+        ticks++;
+        if (mode == Mode.PANEL && (panel == null || !panel.available())) setMode(Mode.NORMAL);
+        if (mode == Mode.PANEL) {
+            if (panel.searchHint() != null) panel.search(searchBox.getValue());
+            panel.tick();
+            return;
+        }
         String query = searchBox.getValue();
         if (listDirty || menu.clientVersion() != seenVersion || !query.equals(seenQuery)) {
             if (!query.equals(seenQuery)) scroll = 0;
@@ -281,6 +359,66 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         return index < tabs.size() ? index : -1;
     }
 
+    // ---- gear buttons ------------------------------------------------------
+
+    /** The settings panel for the upgrade in this slot, or null if it has none. */
+    private Function<QuantumChestScreen, Panel> panelFor(ItemStack upgrade) {
+        if (upgrade.is(ModItems.MAGNET_UPGRADE.get())) return s -> new MagnetPanel(s.menu, s);
+        if (upgrade.is(ModItems.VOID_UPGRADE.get())) return s -> new VoidPanel(s.menu, s);
+        if (upgrade.is(ModItems.COMPACTOR_UPGRADE.get())) return s -> new CompactPanel(s.menu, s);
+        if (upgrade.is(ModItems.IO_UPGRADE.get())) return s -> new FacesPanel(s.menu, s);
+        return null;
+    }
+
+    /** Magnet and faces belong to the chest itself, so they can't be set up from a terminal. */
+    private boolean needsChest(ItemStack upgrade) {
+        return upgrade.is(ModItems.MAGNET_UPGRADE.get()) || upgrade.is(ModItems.IO_UPGRADE.get());
+    }
+
+    private boolean gearEnabled(ItemStack upgrade) {
+        return !needsChest(upgrade) || menu.clientFaces().editable();
+    }
+
+    private ItemStack upgradeIn(int slot) {
+        return menu.slots.get(36 + slot).getItem();
+    }
+
+    private boolean hasGear(int slot) {
+        return slot < menu.activeUpgradeSlots() && panelFor(upgradeIn(slot)) != null;
+    }
+
+    private int gearY(int slot) {
+        return QuantumChestMenu.UPGRADE_Y + slot * 18 + 3;
+    }
+
+    private int gearAt(double mouseX, double mouseY) {
+        for (int i = 0; i < QuantumChestMenu.UPGRADE_SLOTS; i++) {
+            if (hasGear(i) && isHovering(GEAR_X, gearY(i), GEAR_SIZE, GEAR_SIZE, mouseX, mouseY)) return i;
+        }
+        return -1;
+    }
+
+    private void drawGears(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        String[] gear = {"..#.#..", ".#####.", "##...##", ".#...#.", "##...##", ".#####.", "..#.#.."};
+        for (int i = 0; i < QuantumChestMenu.UPGRADE_SLOTS; i++) {
+            if (!hasGear(i)) continue;
+            ItemStack upgrade = upgradeIn(i);
+            boolean enabled = gearEnabled(upgrade);
+            boolean open = mode == Mode.PANEL && panel != null && ItemStack.isSameItem(panel.upgrade(), upgrade);
+            int x = leftPos + GEAR_X;
+            int y = topPos + gearY(i);
+            boolean over = isHovering(GEAR_X, gearY(i), GEAR_SIZE, GEAR_SIZE, mouseX, mouseY);
+            graphics.fill(x, y, x + GEAR_SIZE, y + GEAR_SIZE, open ? 0xFFFFD24A : over && enabled ? 0xFFFFFFFF : 0xFF000000);
+            graphics.fill(x + 1, y + 1, x + GEAR_SIZE - 1, y + GEAR_SIZE - 1, enabled ? 0xFF6F6F6F : 0xFF4A4A4A);
+            int color = enabled ? 0xFFE6E6E6 : 0xFF808080;
+            for (int gy = 0; gy < gear.length; gy++) {
+                for (int gx = 0; gx < gear[gy].length(); gx++) {
+                    if (gear[gy].charAt(gx) == '#') graphics.fill(x + 2 + gx, y + 2 + gy, x + 3 + gx, y + 3 + gy, color);
+                }
+            }
+        }
+    }
+
     // ---- drawing -----------------------------------------------------------
 
     @Override
@@ -288,16 +426,19 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         updateScrollbarDrag(mouseX, mouseY);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
 
-        boolean canScroll = hiddenRows() > 0 && !panelMode();
-        int knobY = topPos + SCROLL_Y + (int) ((SCROLL_H - 15) * scroll);
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, canScroll ? SCROLLER : SCROLLER_DISABLED,
-                leftPos + SCROLL_X, knobY, 12, 15);
-        for (EditBox box : List.of(searchBox, nameBox, tagsBox, memberBox, limitBox)) {
+        if (mode != Mode.PANEL) {
+            boolean canScroll = hiddenRows() > 0 && !panelMode();
+            int knobY = topPos + SCROLL_Y + (int) ((SCROLL_H - 15) * scroll);
+            graphics.blitSprite(RenderPipelines.GUI_TEXTURED, canScroll ? SCROLLER : SCROLLER_DISABLED,
+                    leftPos + SCROLL_X, knobY, 12, 15);
+        }
+        for (EditBox box : boxes()) {
             if (box.isVisible()) box.extractRenderState(graphics, mouseX, mouseY, partialTick);
         }
 
         drawTabs(graphics, mouseX, mouseY);
         drawSideButtons(graphics, mouseX, mouseY);
+        drawGears(graphics, mouseX, mouseY);
         drawTooltips(graphics, mouseX, mouseY);
     }
 
@@ -313,16 +454,15 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         } else if (mode == Mode.MEMBERS) {
             textField(graphics, 7, INFO_Y - 2, 154);
         }
-        if (limitBox.isVisible()) textField(graphics, 112, 4, 61);
     }
 
-    /** The strip of upgrade slots to the right of the panel. Locked slots show a darker square. */
+    /** The strip of upgrade slots to the right of the panel, wide enough for the gear buttons. */
     private void drawUpgradeColumn(GuiGraphicsExtractor graphics) {
         int x = leftPos + QuantumChestMenu.UPGRADE_X - 1;
         int top = topPos + QuantumChestMenu.UPGRADE_Y - 1;
         int slots = QuantumChestMenu.UPGRADE_SLOTS;
-        graphics.fill(x - 4, top - 4, x + 22, top + slots * 18 + 4, 0xFF000000);
-        graphics.fill(x - 3, top - 3, x + 21, top + slots * 18 + 3, 0xFFC6C6C6);
+        graphics.fill(x - 4, top - 4, x + 36, top + slots * 18 + 4, 0xFF000000);
+        graphics.fill(x - 3, top - 3, x + 35, top + slots * 18 + 3, 0xFFC6C6C6);
         int active = menu.activeUpgradeSlots();
         for (int i = 0; i < slots; i++) {
             int y = top + i * 18;
@@ -344,6 +484,17 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     /** Labels are drawn relative to the top left corner of the panel. */
     @Override
     protected void extractLabels(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        hoveredIndex = -1;
+        if (mode == Mode.PANEL) {
+            panel.draw(graphics, mouseX - leftPos, mouseY - topPos);
+            if (numberBox.isVisible()) {
+                int bx = numberBox.getX() - leftPos - 2;
+                int by = numberBox.getY() - topPos - 2;
+                graphics.fill(bx, by, bx + numberBox.getWidth() + 3, by + 12, 0xFFFFFFFF);
+                graphics.fill(bx + 1, by + 1, bx + numberBox.getWidth() + 2, by + 11, 0xFF000000);
+            }
+            return;
+        }
         // The search box takes the top row, so the chest name goes on the row above the inventory
         if (mode == Mode.NORMAL) {
             graphics.text(font, title.getString(), 8, INFO_Y, 0xFF404040, false);
@@ -352,22 +503,10 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         } else if (mode == Mode.MEMBERS) {
             graphics.text(font, Component.translatable("gui.quantumchest.members", access().members().size()).getString(),
                     8, 6, 0xFF404040, false);
-        } else if (mode == Mode.FACES) {
-            graphics.text(font, Component.translatable("gui.quantumchest.faces").getString(), 8, 6, 0xFF404040, false);
-            String speed = Component.translatable("gui.quantumchest.faces.speed",
-                    ChestAutomation.Speed.of(menu.clientTier()).perSecond()).getString();
-            graphics.text(font, speed, 8, INFO_Y, 0xFF404040, false);
-        }
-
-        hoveredIndex = -1;
-        if (mode == Mode.MEMBERS) {
             drawMembers(graphics, mouseX, mouseY);
             return;
         }
-        if (mode == Mode.FACES) {
-            drawFaces(graphics, mouseX, mouseY);
-            return;
-        }
+
         int start = firstRow() * COLS;
         for (int i = 0; i < ROWS * COLS; i++) {
             int index = start + i;
@@ -413,52 +552,6 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         }
     }
 
-    /** The six faces, named as seen from the front of the chest. */
-    private List<Direction> faceOrder() {
-        Direction front = Direction.from3DDataValue(menu.clientFaces().facing());
-        if (front.getAxis() == Direction.Axis.Y) front = Direction.NORTH;
-        return List.of(front, front.getOpposite(), front.getClockWise(), front.getCounterClockWise(), Direction.UP, Direction.DOWN);
-    }
-
-    private static final String[] FACE_NAMES = {"front", "back", "left", "right", "up", "down"};
-
-    private FaceSetting faceSetting(Direction side) {
-        for (FaceSetting face : menu.clientFaces().sides()) {
-            if (face.side() == side) return face;
-        }
-        return new FaceSetting(side, FaceMode.OFF, "");
-    }
-
-    private void drawFaces(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-        graphics.fill(GRID_X - 1, GRID_Y - 1, GRID_X - 1 + COLS * 18, GRID_Y - 1 + ROWS * 18, 0xFF2B2B2B);
-        List<Direction> order = faceOrder();
-        for (int i = 0; i < order.size(); i++) {
-            FaceSetting face = faceSetting(order.get(i));
-            int y = GRID_Y + 2 + i * 18;
-            graphics.text(font, Component.translatable("gui.quantumchest.face.side." + FACE_NAMES[i]).getString(),
-                    GRID_X + 3, y + 3, 0xFFFFFFFF, false);
-            int modeColor = switch (face.mode()) {
-                case OFF -> 0xFF555555;
-                case IMPORT -> 0xFF2E6FB0;
-                case EXPORT -> 0xFFC07A22;
-            };
-            faceButton(graphics, FACE_MODE_X, y, modeColor, Component.translatable(face.mode().translationKey()).getString(), mouseX, mouseY);
-            if (face.mode() == FaceMode.EXPORT) {
-                String tab = face.tab().isEmpty()
-                        ? Component.translatable("gui.quantumchest.face.no_tab").getString() : face.tab();
-                faceButton(graphics, FACE_TAB_X, y, face.tab().isEmpty() ? 0xFF6B3030 : 0xFF3A3A3A, tab, mouseX, mouseY);
-            }
-        }
-    }
-
-    private void faceButton(GuiGraphicsExtractor graphics, int x, int y, int color, String text, int mouseX, int mouseY) {
-        boolean hover = isHovering(x, y, FACE_BUTTON_W, 14, mouseX, mouseY);
-        graphics.fill(x, y, x + FACE_BUTTON_W, y + 14, hover ? 0xFFFFFFFF : 0xFF000000);
-        graphics.fill(x + 1, y + 1, x + FACE_BUTTON_W - 1, y + 13, color);
-        String shown = font.plainSubstrByWidth(text, FACE_BUTTON_W - 6);
-        graphics.text(font, shown, x + FACE_BUTTON_W / 2 - font.width(shown) / 2, y + 3, 0xFFFFFFFF, false);
-    }
-
     private void drawAmount(GuiGraphicsExtractor graphics, long amount, int x, int y) {
         if (amount <= 1) return;
         String text = compact(amount);
@@ -480,15 +573,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             if (index >= tabs.size()) break;
             ChestTabs.Tab tab = tabs.get(index);
             int x = leftPos + firstTabX() + slot * TAB_W;
-            boolean selected = tab.key().equals(selectedTab) && mode != Mode.EDIT_TAB
+            boolean selected = tab.key().equals(selectedTab) && mode == Mode.NORMAL
                     || mode == Mode.EDIT_TAB && tab.customIndex() == editIndex && editIndex >= 0;
             graphics.blit(RenderPipelines.GUI_TEXTURED, TEXTURE, x, y, selected ? 22 : 0, 224, 22, 22, 256, 256);
             if (tab.key().equals(ChestTabs.ADD)) {
                 graphics.text(font, "+", x + 11 - font.width("+") / 2, y + 7, 0xFF404040, false);
             } else {
                 graphics.item(tab.icon(), x + 3, y + 3);
-                int color = roleColor(roleOf(tab));
-                if (color != 0) graphics.fill(x + 15, y + 3, x + 19, y + 7, color);
             }
         }
         if (tabsNeedPages()) {
@@ -497,49 +588,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         }
     }
 
-    private TabRole roleOf(ChestTabs.Tab tab) {
-        if (!tab.isCustom() || tab.customIndex() >= menu.clientTabs().size()) return TabRole.NORMAL;
-        return menu.clientTabs().get(tab.customIndex()).role();
-    }
-
-    /** The little square in the corner of a tab: green whitelist, red destroy, blue compact. */
-    private static int roleColor(TabRole role) {
-        return switch (role) {
-            case NORMAL -> 0;
-            case WHITELIST -> 0xFF3FB24A;
-            case VOID -> 0xFFD03A3A;
-            case COMPACT -> 0xFF3F7FD6;
-        };
-    }
-
-    private static ItemStack roleIcon(TabRole role) {
-        return new ItemStack(switch (role) {
-            case NORMAL -> Items.BOOK;
-            case WHITELIST -> Items.HOPPER;
-            case VOID -> Items.CACTUS;
-            case COMPACT -> Items.PISTON;
-        });
-    }
-
-    /** The upgrade a role needs to do anything, or null. */
-    private static ItemStack roleUpgrade(TabRole role) {
-        return switch (role) {
-            case VOID -> new ItemStack(ModItems.VOID_UPGRADE.get());
-            case COMPACT -> new ItemStack(ModItems.COMPACTOR_UPGRADE.get());
-            default -> ItemStack.EMPTY;
-        };
-    }
-
-    private boolean hasUpgradeOnScreen(ItemStack upgrade) {
-        for (int i = 0; i < menu.activeUpgradeSlots(); i++) {
-            if (menu.slots.get(36 + i).getItem().is(upgrade.getItem())) return true;
-        }
-        return false;
-    }
-
     private void drawArrow(GuiGraphicsExtractor graphics, int x, int y, String text) {
         graphics.blit(RenderPipelines.GUI_TEXTURED, TEXTURE, x, y, 44, 224, ARROW_W, 22, 256, 256);
         graphics.text(font, text, x + ARROW_W / 2 - font.width(text) / 2 + 1, y + 7, 0xFF404040, false);
+    }
+
+    private boolean filterOpen() {
+        return mode == Mode.PANEL && panel instanceof FilterPanel;
     }
 
     private void drawSideButtons(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -549,12 +604,28 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             textButton(graphics, SIDE_A_Y, "✓", mouseX, mouseY);
             textButton(graphics, SIDE_B_Y, "✕", mouseX, mouseY);
             if (editIndex >= 0) itemButton(graphics, SIDE_C_Y, new ItemStack(Items.LAVA_BUCKET), mouseX, mouseY);
-            itemButton(graphics, SIDE_D_Y, roleIcon(editRole), mouseX, mouseY);
-        } else if (access().canManage()) {
-            itemButton(graphics, SIDE_A_Y, new ItemStack(access().isPublic() ? Items.OAK_DOOR : Items.IRON_DOOR), mouseX, mouseY);
-            itemButton(graphics, SIDE_B_Y, new ItemStack(Items.PLAYER_HEAD), mouseX, mouseY);
-            if (facesAvailable()) itemButton(graphics, SIDE_C_Y, new ItemStack(ModItems.IO_UPGRADE.get()), mouseX, mouseY);
+        } else {
+            if (access().canManage()) {
+                itemButton(graphics, SIDE_A_Y, new ItemStack(access().isPublic() ? Items.OAK_DOOR : Items.IRON_DOOR), mouseX, mouseY);
+                itemButton(graphics, SIDE_B_Y, new ItemStack(Items.PLAYER_HEAD), mouseX, mouseY);
+            }
+            itemButton(graphics, SIDE_C_Y, new ItemStack(Items.HOPPER), mouseX, mouseY);
+            if (filterOpen()) outline(graphics, SIDE_X, SIDE_C_Y, 18, 18, 0xFFFFD24A);
+            if (!menu.clientConfig().filter().entries().isEmpty()) {
+                // A small dot when a filter is set, green for whitelist, red for blacklist
+                int color = menu.clientConfig().filter().blacklist() ? 0xFFD03A3A : 0xFF3FB24A;
+                graphics.fill(leftPos + SIDE_X + 13, topPos + SIDE_C_Y + 2, leftPos + SIDE_X + 16, topPos + SIDE_C_Y + 5, color);
+            }
         }
+    }
+
+    private void outline(GuiGraphicsExtractor graphics, int x, int y, int w, int h, int color) {
+        int ax = leftPos + x;
+        int ay = topPos + y;
+        graphics.fill(ax - 1, ay - 1, ax + w + 1, ay, color);
+        graphics.fill(ax - 1, ay + h, ax + w + 1, ay + h + 1, color);
+        graphics.fill(ax - 1, ay, ax, ay + h, color);
+        graphics.fill(ax + w, ay, ax + w + 1, ay + h, color);
     }
 
     private void textButton(GuiGraphicsExtractor graphics, int y, String icon, int mouseX, int mouseY) {
@@ -580,13 +651,20 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private void drawTooltips(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         List<Component> lines = null;
         int tab = tabAt(mouseX, mouseY);
+        int gear = gearAt(mouseX, mouseY);
         if (tab >= 0) {
             ChestTabs.Tab t = tabs.get(tab);
             lines = new ArrayList<>(List.of(t.name()));
-            if (t.isCustom()) lines.addAll(roleLines(menu.clientTabs().get(t.customIndex()).role(),
-                    menu.clientTabs().get(t.customIndex()).limit()));
             if (t.isCustom() && access().canEditTabs()) {
                 lines.add(Component.translatable("gui.quantumchest.tab.edit_hint").withStyle(ChatFormatting.GRAY));
+            }
+        } else if (gear >= 0) {
+            ItemStack upgrade = upgradeIn(gear);
+            lines = new ArrayList<>(List.of(Component.translatable("gui.quantumchest.gear", upgrade.getHoverName())));
+            if (!gearEnabled(upgrade)) {
+                lines.add(Component.translatable("gui.quantumchest.gear.needs_chest").withStyle(ChatFormatting.RED));
+            } else if (!access().canManage()) {
+                lines.add(Component.translatable("gui.quantumchest.panel.view_only").withStyle(ChatFormatting.GRAY));
             }
         } else if (onSide(SORT_Y, mouseX, mouseY)) {
             lines = List.of(Component.translatable("gui.quantumchest.sort"), Component.translatable(sortMode.translationKey()));
@@ -598,26 +676,24 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             lines = List.of(Component.translatable("gui.quantumchest.edit.cancel"));
         } else if (mode == Mode.EDIT_TAB && editIndex >= 0 && onSide(SIDE_C_Y, mouseX, mouseY)) {
             lines = List.of(Component.translatable("gui.quantumchest.edit.delete"));
-        } else if (mode == Mode.EDIT_TAB && onSide(SIDE_D_Y, mouseX, mouseY)) {
-            lines = new ArrayList<>(List.of(Component.translatable("gui.quantumchest.role")));
-            lines.addAll(roleLines(editRole, -1));
-            lines.add(Component.translatable("gui.quantumchest.role.toggle").withStyle(ChatFormatting.GRAY));
-        } else if (mode != Mode.EDIT_TAB && access().canManage() && facesAvailable() && onSide(SIDE_C_Y, mouseX, mouseY)) {
-            lines = List.of(Component.translatable("gui.quantumchest.faces"),
-                    Component.translatable("gui.quantumchest.faces.hint").withStyle(ChatFormatting.GRAY));
-        } else if (mode == Mode.FACES && faceTabAt(mouseX, mouseY) != null) {
-            lines = List.of(Component.translatable("gui.quantumchest.face.tab_hint"));
         } else if (mode != Mode.EDIT_TAB && access().canManage() && onSide(SIDE_A_Y, mouseX, mouseY)) {
             lines = List.of(Component.translatable(access().isPublic() ? "gui.quantumchest.access.public" : "gui.quantumchest.access.private"),
                     Component.translatable("gui.quantumchest.access.toggle").withStyle(ChatFormatting.GRAY));
         } else if (mode != Mode.EDIT_TAB && access().canManage() && onSide(SIDE_B_Y, mouseX, mouseY)) {
             lines = List.of(Component.translatable("gui.quantumchest.members", access().members().size()));
+        } else if (mode != Mode.EDIT_TAB && onSide(SIDE_C_Y, mouseX, mouseY)) {
+            lines = filterTooltip();
         } else if (upgradeSlotAt(mouseX, mouseY) >= menu.activeUpgradeSlots()) {
             lines = List.of(Component.translatable("gui.quantumchest.upgrades.locked",
                     Component.translatable(tierForSlot(upgradeSlotAt(mouseX, mouseY)).translationKey())));
         } else if (upgradeSlotAt(mouseX, mouseY) >= 0 && menu.getCarried().isEmpty()
                 && !menu.slots.get(36 + upgradeSlotAt(mouseX, mouseY)).hasItem()) {
             lines = List.of(Component.translatable("gui.quantumchest.upgrades.empty"));
+        } else if (mode == Mode.PANEL) {
+            lines = panel.tooltip(mouseX - leftPos, mouseY - topPos);
+            if (lines == null && isHovering(0, 0, imageWidth, 17, mouseX, mouseY)) {
+                lines = List.of(panel.title(), Component.translatable("gui.quantumchest.panel.back").withStyle(ChatFormatting.DARK_GRAY));
+            }
         } else if (mode == Mode.NORMAL && isHovering(7, INFO_Y - 1, 181, 10, mouseX, mouseY)) {
             lines = infoTooltip();
         } else if (hoveredIndex >= 0 && menu.getCarried().isEmpty()) {
@@ -628,20 +704,17 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         if (lines != null) graphics.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
     }
 
-    /** Name, what it does, the limit and whether its upgrade is missing. {@code limit} -1 leaves it out. */
-    private List<Component> roleLines(TabRole role, long limit) {
+    private List<Component> filterTooltip() {
+        FilterRules filter = menu.clientConfig().filter();
         List<Component> lines = new ArrayList<>();
-        if (role == TabRole.NORMAL && limit >= 0) return lines;
-        lines.add(Component.translatable(role.translationKey()).withStyle(ChatFormatting.YELLOW));
-        lines.add(Component.translatable(role.translationKey() + ".hint").withStyle(ChatFormatting.GRAY));
-        if (role.usesLimit() && limit >= 0) {
-            lines.add(Component.translatable(role == TabRole.COMPACT ? "gui.quantumchest.role.keep_loose" : "gui.quantumchest.role.keep",
-                    full(limit)).withStyle(ChatFormatting.GRAY));
+        lines.add(Component.translatable("gui.quantumchest.filter"));
+        if (filter.entries().isEmpty()) {
+            lines.add(Component.translatable("gui.quantumchest.filter.empty").withStyle(ChatFormatting.GRAY));
+        } else {
+            lines.add(Component.translatable(filter.blacklist() ? "gui.quantumchest.filter.count_blocked" : "gui.quantumchest.filter.count_allowed",
+                    filter.entries().size()).withStyle(filter.blacklist() ? ChatFormatting.RED : ChatFormatting.GREEN));
         }
-        ItemStack upgrade = roleUpgrade(role);
-        if (!upgrade.isEmpty() && !hasUpgradeOnScreen(upgrade)) {
-            lines.add(Component.translatable("gui.quantumchest.role.needs", upgrade.getHoverName()).withStyle(ChatFormatting.RED));
-        }
+        lines.add(Component.translatable("gui.quantumchest.filter.side_hint").withStyle(ChatFormatting.DARK_GRAY));
         return lines;
     }
 
@@ -691,7 +764,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private void updateScrollbarDrag(int mouseX, int mouseY) {
         boolean mouseDown = GLFW.glfwGetMouseButton(Minecraft.getInstance().getWindow().handle(),
                 GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_RELEASE;
-        if (!wasMouseDown && mouseDown && isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, SCROLL_H + 2, mouseX, mouseY)) {
+        if (!wasMouseDown && mouseDown && !panelMode() && isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, SCROLL_H + 2, mouseX, mouseY)) {
             scrolling = hiddenRows() > 0;
         }
         if (!mouseDown) scrolling = false;
@@ -707,22 +780,39 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         double y = event.y();
         int button = event.button();
 
+        if (numberTarget != null) {
+            if (numberBox.isMouseOver(x, y)) return super.mouseClicked(event, doubleClick);
+            // A click anywhere else confirms what was typed
+            commitNumber();
+        }
         if (clickTabRow(x, y, button)) return true;
         if (clickSideButtons(x, y)) return true;
+        int gear = gearAt(x, y);
+        if (gear >= 0) {
+            ItemStack upgrade = upgradeIn(gear);
+            if (gearEnabled(upgrade)) openPanel(panelFor(upgrade).apply(this));
+            return true;
+        }
         // Locked upgrade slots aren't real slots for vanilla; without this a click
         // there would count as outside the screen and throw the cursor item away
         if (upgradeSlotAt(x, y) >= menu.activeUpgradeSlots()) return true;
 
+        if (mode == Mode.PANEL) {
+            int relX = (int) Math.floor(x - leftPos);
+            int relY = (int) Math.floor(y - topPos);
+            if (panel.click(relX, relY, button, event.hasShiftDown())) return true;
+            Slot slot = slotAt(x, y);
+            // Clicking your own items picks them for filters, without moving them
+            if (slot != null && slot.index < 36 && slot.hasItem() && menu.getCarried().isEmpty()
+                    && panel.pickFromInventory(slot.getItem(), button)) {
+                return true;
+            }
+            if (isHovering(Panel.AREA_X, Panel.AREA_Y, Panel.AREA_W, Panel.AREA_H, x, y)) return true;
+            return super.mouseClicked(event, doubleClick);
+        }
         if (mode == Mode.MEMBERS) {
             if (insideGrid(x, y)) {
                 clickMember(x, y);
-                return true;
-            }
-            return super.mouseClicked(event, doubleClick);
-        }
-        if (mode == Mode.FACES) {
-            if (insideGrid(x, y)) {
-                clickFace(x, y, button);
                 return true;
             }
             return super.mouseClicked(event, doubleClick);
@@ -750,6 +840,18 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         return super.mouseClicked(event, doubleClick);
     }
 
+    /** The upgrade column, the side buttons and the tab row also count as inside, so nothing gets thrown by mistake. */
+    @Override
+    protected boolean hasClickedOutside(double mouseX, double mouseY, int left, int top) {
+        int upgradesBottom = QuantumChestMenu.UPGRADE_Y + QuantumChestMenu.UPGRADE_SLOTS * 18 + 4;
+        if (isHovering(QuantumChestMenu.UPGRADE_X - 5, QuantumChestMenu.UPGRADE_Y - 5, 40, upgradesBottom - QuantumChestMenu.UPGRADE_Y + 5, mouseX, mouseY)) {
+            return false;
+        }
+        if (isHovering(SIDE_X, SORT_Y, 18, SIDE_C_Y + 18 - SORT_Y, mouseX, mouseY)) return false;
+        if (isHovering(0, TAB_Y, imageWidth, -TAB_Y, mouseX, mouseY)) return false;
+        return super.hasClickedOutside(mouseX, mouseY, left, top);
+    }
+
     private boolean clickTabRow(double x, double y, int button) {
         if (tabsNeedPages() && isHovering(0, TAB_Y, ARROW_W, TAB_W, x, y)) {
             tabPage = Math.max(0, Mth.clamp(tabPage, 0, tabPages() - 1) - 1);
@@ -764,8 +866,10 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         if (mode == Mode.EDIT_TAB) return true;
         ChestTabs.Tab tab = tabs.get(index);
         if (tab.key().equals(ChestTabs.ADD)) {
+            if (panelMode()) setMode(Mode.NORMAL);
             startEditing(-1);
         } else if (button == 1 && tab.isCustom() && access().canEditTabs()) {
+            if (panelMode()) setMode(Mode.NORMAL);
             startEditing(tab.customIndex());
         } else {
             if (panelMode()) setMode(Mode.NORMAL);
@@ -800,16 +904,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
                 deleteTab();
                 return true;
             }
-            if (onSide(SIDE_D_Y, x, y)) {
-                editRole = editRole.next();
-                updateLimitBox();
-                return true;
-            }
             return false;
-        }
-        if (access().canManage() && facesAvailable() && onSide(SIDE_C_Y, x, y)) {
-            setMode(mode == Mode.FACES ? Mode.NORMAL : Mode.FACES);
-            return true;
         }
         if (access().canManage() && onSide(SIDE_A_Y, x, y)) {
             sendSettings(access().isPublic() ? ChestSettingsPayload.Action.MAKE_PRIVATE : ChestSettingsPayload.Action.MAKE_PUBLIC, "");
@@ -822,6 +917,10 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
                 setFocused(memberBox);
                 memberBox.setFocused(true);
             }
+            return true;
+        }
+        if (onSide(SIDE_C_Y, x, y)) {
+            openPanel(new FilterPanel(menu, this));
             return true;
         }
         return false;
@@ -844,47 +943,6 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         send(new ClickPayload(menu.containerId, action, clicked));
     }
 
-    /** Left click goes forward through the options, right click backwards. */
-    private void clickFace(double mouseX, double mouseY, int button) {
-        List<Direction> order = faceOrder();
-        for (int i = 0; i < order.size(); i++) {
-            FaceSetting face = faceSetting(order.get(i));
-            int y = GRID_Y + 2 + i * 18;
-            if (isHovering(FACE_MODE_X, y, FACE_BUTTON_W, 14, mouseX, mouseY)) {
-                FaceMode next = button == 1 ? face.mode().next().next() : face.mode().next();
-                sendFace(new FaceSetting(face.side(), next, next == FaceMode.EXPORT ? face.tab() : ""));
-                return;
-            }
-            if (face.mode() == FaceMode.EXPORT && isHovering(FACE_TAB_X, y, FACE_BUTTON_W, 14, mouseX, mouseY)) {
-                sendFace(new FaceSetting(face.side(), FaceMode.EXPORT, cycleTab(face.tab(), button == 1 ? -1 : 1)));
-                return;
-            }
-        }
-    }
-
-    /** The export tab button under the mouse, or null. */
-    private Direction faceTabAt(double mouseX, double mouseY) {
-        List<Direction> order = faceOrder();
-        for (int i = 0; i < order.size(); i++) {
-            if (faceSetting(order.get(i)).mode() == FaceMode.EXPORT
-                    && isHovering(FACE_TAB_X, GRID_Y + 2 + i * 18, FACE_BUTTON_W, 14, mouseX, mouseY)) return order.get(i);
-        }
-        return null;
-    }
-
-    /** Next custom tab name after {@code current}, with "" (none) between the last and the first. */
-    private String cycleTab(String current, int step) {
-        List<String> names = new ArrayList<>();
-        names.add("");
-        menu.clientTabs().forEach(tab -> names.add(tab.name()));
-        int at = Math.max(0, names.indexOf(current));
-        return names.get(Math.floorMod(at + step, names.size()));
-    }
-
-    private void sendFace(FaceSetting face) {
-        send(new SetFacePayload(menu.containerId, face));
-    }
-
     private void clickMember(double mouseX, double mouseY) {
         if (!access().canManage()) return;
         List<String> members = access().members();
@@ -904,16 +962,12 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         editIndex = customIndex;
         editItems.clear();
         editIcon = ItemStack.EMPTY;
-        editRole = TabRole.NORMAL;
         nameBox.setValue("");
         tagsBox.setValue("");
-        limitBox.setValue("");
         if (customIndex >= 0 && customIndex < menu.clientTabs().size()) {
             CustomTab tab = menu.clientTabs().get(customIndex);
             editItems.addAll(tab.items());
             editIcon = tab.icon();
-            editRole = tab.role();
-            if (tab.limit() > 0) limitBox.setValue(Long.toString(tab.limit()));
             nameBox.setValue(tab.name());
             tagsBox.setValue(String.join(" ", tab.tags().stream().map(id -> "#" + id).toList()));
         }
@@ -944,16 +998,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             Identifier id = Identifier.tryParse(text.toLowerCase(Locale.ROOT));
             if (id != null && !tags.contains(id)) tags.add(id);
         }
-        long limit = 0;
-        String digits = limitBox.getValue().replaceAll("\\D", "");
-        if (!digits.isEmpty()) {
-            try {
-                limit = Long.parseLong(digits);
-            } catch (NumberFormatException tooBig) {
-                limit = Long.MAX_VALUE;
-            }
-        }
-        CustomTab tab = new CustomTab(name, editIcon, List.copyOf(editItems), tags, editRole, editRole.usesLimit() ? limit : 0);
+        CustomTab tab = new CustomTab(name, editIcon, List.copyOf(editItems), tags);
         List<CustomTab> updated = new ArrayList<>(menu.clientTabs());
         if (editIndex >= 0 && editIndex < updated.size()) {
             updated.set(editIndex, tab);
@@ -979,7 +1024,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     /** Player inventory slot under the mouse, or null. */
     private Slot slotAt(double mouseX, double mouseY) {
         for (Slot slot : menu.slots) {
-            if (isHovering(slot.x, slot.y, 16, 16, mouseX, mouseY)) return slot;
+            if (slot.isActive() && isHovering(slot.x, slot.y, 16, 16, mouseX, mouseY)) return slot;
         }
         return null;
     }
@@ -996,6 +1041,11 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             tabPage = Mth.clamp(tabPage - (int) Math.signum(scrollY), 0, tabPages() - 1);
             return true;
         }
+        if (mode == Mode.PANEL) {
+            if (numberTarget != null) commitNumber();
+            if (panel.scroll((int) Math.floor(mouseX - leftPos), (int) Math.floor(mouseY - topPos), scrollY)) return true;
+            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        }
         int hidden = hiddenRows();
         boolean overGrid = insideGrid(mouseX, mouseY) || isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, SCROLL_H + 2, mouseX, mouseY);
         if (hidden > 0 && overGrid && !panelMode()) {
@@ -1007,6 +1057,17 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        boolean enter = event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER;
+        if (numberTarget != null) {
+            if (enter) {
+                commitNumber();
+                return true;
+            }
+            if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+                cancelNumber();
+                return true;
+            }
+        }
         if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
             if (mode != Mode.NORMAL) {
                 setMode(Mode.NORMAL);
@@ -1015,19 +1076,18 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             }
             return true;
         }
-        if (mode == Mode.MEMBERS && memberBox.isFocused()
-                && (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER)) {
+        if (mode == Mode.MEMBERS && memberBox.isFocused() && enter) {
             String name = memberBox.getValue().strip();
             if (!name.isEmpty()) sendSettings(ChestSettingsPayload.Action.ADD_MEMBER, name);
             memberBox.setValue("");
             return true;
         }
-        if (mode == Mode.EDIT_TAB && (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER)) {
+        if (mode == Mode.EDIT_TAB && enter) {
             saveTab();
             return true;
         }
         // While typing, keys like E must not close the screen
-        for (EditBox box : List.of(searchBox, nameBox, tagsBox, memberBox, limitBox)) {
+        for (EditBox box : boxes()) {
             if (!box.isVisible()) continue;
             if (box.keyPressed(event) || box.canConsumeInput()) return true;
         }
@@ -1036,9 +1096,9 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     @Override
     public boolean charTyped(CharacterEvent event) {
-        // The limit only takes digits
-        if (limitBox.isVisible() && limitBox.isFocused() && !Character.isDigit(event.codepoint())) return true;
-        for (EditBox box : List.of(searchBox, nameBox, tagsBox, memberBox, limitBox)) {
+        // Numbers only take digits
+        if (numberBox.isVisible() && numberBox.isFocused() && !Character.isDigit(event.codepoint())) return true;
+        for (EditBox box : boxes()) {
             if (box.isVisible() && box.charTyped(event)) return true;
         }
         return super.charTyped(event);

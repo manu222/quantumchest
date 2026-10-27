@@ -1,7 +1,6 @@
 package com.manuelaraujo.quantumchest.forge;
 
 import com.manuelaraujo.quantumchest.automation.ChestPort;
-import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
@@ -39,7 +38,7 @@ final class ForgeChestHandler implements IItemHandler {
 
     @Override
     public int getSlotLimit(int slot) {
-        return port.mode() == FaceMode.IMPORT ? Integer.MAX_VALUE : 64;
+        return port.mode().acceptsInput() ? Integer.MAX_VALUE : 64;
     }
 
     @Override

@@ -3,6 +3,8 @@ package com.manuelaraujo.quantumchest.block.entity;
 import com.manuelaraujo.quantumchest.automation.ChestAutomation;
 import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.automation.FaceSetting;
+import com.manuelaraujo.quantumchest.automation.RejectAction;
+import com.manuelaraujo.quantumchest.automation.RejectBuffer;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.item.QuantumChestItem;
@@ -11,6 +13,7 @@ import com.manuelaraujo.quantumchest.menu.StorageHost;
 import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.registry.ModDataComponents;
+import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
@@ -28,6 +31,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.Containers;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -61,6 +65,10 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private static final String MEMBERS_TAG = "Members";
     private static final String MEMBER_NAMES_TAG = "MemberNames";
     private static final String FACES_TAG = "Faces";
+    private static final String REJECT_ACTION_TAG = "RejectAction";
+    private static final String REJECTED_TAG = "Rejected";
+    private static final String MAGNET_OFF_TAG = "MagnetOff";
+    private static final String MAGNET_RANGE_TAG = "MagnetRange";
     // Phase 0 kept the items inside the block. Read them once and move them over.
     private static final String LEGACY_ITEMS_TAG = "Items";
 
@@ -78,14 +86,106 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private final String[] exportTabs = new String[6];
     // Bumped when a face changes, so open screens resync
     private int faceVersion;
+    // Turned away items waiting to leave through an eject face, and what to do when they can't
+    private final RejectBuffer rejected = new RejectBuffer();
+    private RejectAction rejectAction = RejectAction.REFUSE;
+    // The magnet belongs to the network, but each chest can switch it off or shorten its reach
+    private boolean magnetOn = true;
+    private int magnetRange;
 
     public QuantumChestBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.QUANTUM_CHEST.get(), pos, state);
-        Arrays.fill(faceModes, FaceMode.OFF);
+        Arrays.fill(faceModes, FaceMode.INPUT);
         Arrays.fill(exportTabs, "");
     }
 
     // ---- faces (I/O upgrade) -----------------------------------------------
+
+    // ---- magnet ------------------------------------------------------------
+
+    public boolean magnetOn() {
+        return magnetOn;
+    }
+
+    /** The reach chosen for this chest, or 0 for the most the tier allows. */
+    public int magnetRange() {
+        return magnetRange;
+    }
+
+    public void setMagnet(boolean on, int range) {
+        int cleanRange = Math.max(0, Math.min(range, 16));
+        if (magnetOn == on && magnetRange == cleanRange) return;
+        magnetOn = on;
+        magnetRange = cleanRange;
+        faceVersion++;
+        setChanged();
+    }
+
+    public boolean hasIo(QuantumStorage storage) {
+        return storage.hasUpgrade(ModItems.IO_UPGRADE.get());
+    }
+
+    /** What a face does right now. Without the I/O upgrade every face is INPUT, like a vanilla chest. */
+    public FaceMode effectiveMode(QuantumStorage storage, Direction side) {
+        return hasIo(storage) ? faceMode(side) : FaceMode.INPUT;
+    }
+
+    public List<Direction> ejectFaces() {
+        List<Direction> sides = new ArrayList<>();
+        for (Direction side : Direction.values()) {
+            if (faceMode(side) == FaceMode.EJECT) sides.add(side);
+        }
+        return sides;
+    }
+
+    public RejectBuffer rejected() {
+        return rejected;
+    }
+
+    public RejectAction rejectAction() {
+        return rejectAction;
+    }
+
+    public void setRejectAction(RejectAction action) {
+        if (rejectAction == action) return;
+        rejectAction = action;
+        faceVersion++;
+        setChanged();
+    }
+
+    /**
+     * Whether turned away items may wait in the buffer to leave. Needs the I/O
+     * upgrade, and either an eject face or the choice to drop or destroy them.
+     * Otherwise they are refused and stay in the hopper, as with a full chest.
+     */
+    public boolean takesRejected(QuantumStorage storage) {
+        return hasIo(storage) && (!ejectFaces().isEmpty() || rejectAction != RejectAction.REFUSE);
+    }
+
+    /** What happened to items that came in from a hopper, a pipe or an importing face. */
+    public record Routed(long stored, long destroyed, long buffered) {
+        public static final Routed NONE = new Routed(0, 0, 0);
+
+        public long total() {
+            return stored + destroyed + buffered;
+        }
+    }
+
+    /**
+     * The way in for hoppers, pipes and importing faces. The storage takes what
+     * its whitelist, destroy tabs and capacity allow; what's left goes to the
+     * reject buffer when this chest can send it on.
+     */
+    public Routed acceptFromPipe(QuantumStorage storage, ItemStack template, long amount, boolean simulate) {
+        QuantumStorage.Accepted accepted = storage.acceptAutomatic(template, amount, simulate);
+        long rest = amount - accepted.total();
+        long buffered = 0;
+        if (rest > 0 && takesRejected(storage)) {
+            buffered = rejected.add(template, rest, simulate);
+            if (buffered > 0 && !simulate) setChanged();
+        }
+        return new Routed(accepted.stored(), accepted.destroyed(), buffered);
+    }
 
     public FaceMode faceMode(Direction side) {
         return faceModes[side.get3DDataValue()];
@@ -203,11 +303,14 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         }
     }
 
-    /** The chest is gone for good (broken, not unloaded): take it off its network. */
+    /** The chest is gone for good (broken, not unloaded): take it off its network and empty the reject buffer. */
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         super.preRemoveSideEffects(pos, state);
         if (level == null || level.getServer() == null) return;
+        for (ItemStack stack : rejected.takeAll()) {
+            Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+        }
         QuantumStorage storage = existingStorage();
         if (storage != null) storage.removeAnchor(GlobalPos.of(level.dimension(), pos));
     }
@@ -297,11 +400,20 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
             var list = output.list(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC);
             legacyItems.forEach(list::add);
         }
-        List<FaceSetting> used = faces().stream().filter(f -> f.mode() != FaceMode.OFF || !f.tab().isEmpty()).toList();
+        List<FaceSetting> used = faces().stream().filter(f -> f.mode() != FaceMode.INPUT || !f.tab().isEmpty()).toList();
         if (!used.isEmpty()) {
             var list = output.list(FACES_TAG, FaceSetting.CODEC);
             used.forEach(list::add);
         }
+        if (rejectAction != RejectAction.REFUSE) {
+            output.store(REJECT_ACTION_TAG, RejectAction.CODEC, rejectAction);
+        }
+        if (!rejected.isEmpty()) {
+            var list = output.list(REJECTED_TAG, ItemStack.CODEC);
+            rejected.stacks().forEach(list::add);
+        }
+        if (!magnetOn) output.putBoolean(MAGNET_OFF_TAG, true);
+        if (magnetRange > 0) output.putInt(MAGNET_RANGE_TAG, magnetRange);
     }
 
     @Override
@@ -313,12 +425,16 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         membersCache = Set.copyOf(input.listOrEmpty(MEMBERS_TAG, UUIDUtil.CODEC).stream().toList());
         memberNamesCache = Set.copyOf(input.listOrEmpty(MEMBER_NAMES_TAG, Codec.STRING).stream().toList());
         legacyItems = input.listOrEmpty(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC).stream().toList();
-        Arrays.fill(faceModes, FaceMode.OFF);
+        Arrays.fill(faceModes, FaceMode.INPUT);
         Arrays.fill(exportTabs, "");
         input.listOrEmpty(FACES_TAG, FaceSetting.CODEC).stream().forEach(face -> {
             faceModes[face.side().get3DDataValue()] = face.mode();
             exportTabs[face.side().get3DDataValue()] = face.tab();
         });
+        rejectAction = input.read(REJECT_ACTION_TAG, RejectAction.CODEC).orElse(RejectAction.REFUSE);
+        rejected.load(input.listOrEmpty(REJECTED_TAG, ItemStack.CODEC).stream().toList());
+        magnetOn = !input.getBooleanOr(MAGNET_OFF_TAG, false);
+        magnetRange = input.getIntOr(MAGNET_RANGE_TAG, 0);
     }
 
     // Sent to clients when the chunk loads and after sendBlockUpdated

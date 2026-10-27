@@ -1,7 +1,10 @@
 package com.manuelaraujo.quantumchest.menu;
 
+import com.manuelaraujo.quantumchest.automation.CompactOption;
+import com.manuelaraujo.quantumchest.automation.Compactor;
 import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.automation.FaceSetting;
+import com.manuelaraujo.quantumchest.automation.RejectAction;
 import com.manuelaraujo.quantumchest.block.ChestNetwork;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
@@ -11,14 +14,19 @@ import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload.ItemAmount;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
+import com.manuelaraujo.quantumchest.network.UpgradeConfigPayloads;
 import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.manuelaraujo.quantumchest.registry.ModMenus;
 import com.manuelaraujo.quantumchest.storage.AccessMode;
+import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.CustomTab;
+import com.manuelaraujo.quantumchest.storage.FilterRules;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
+import com.manuelaraujo.quantumchest.storage.VoidRule;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -70,6 +78,8 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private SyncStatePayload.Access clientAccess = new SyncStatePayload.Access(0, "", false, false, false, List.of());
     private List<CustomTab> clientTabs = List.of();
     private SyncStatePayload.Faces clientFaces = SyncStatePayload.Faces.NONE;
+    private SyncStatePayload.Config clientConfig = SyncStatePayload.Config.NONE;
+    private List<CompactOption> clientCompactOptions = null;
     private int clientVersion;
     private int clientStateVersion;
 
@@ -276,8 +286,12 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         SyncStatePayload.Faces faces = chest == null ? SyncStatePayload.Faces.NONE : new SyncStatePayload.Faces(
                 storage.canManage(serverPlayer),
                 chest.getBlockState().getValue(QuantumChestBlock.FACING).get3DDataValue(),
-                chest.faces());
-        Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs(), faces));
+                chest.faces(),
+                chest.rejectAction(),
+                chest.magnetOn(),
+                chest.magnetRange());
+        SyncStatePayload.Config config = new SyncStatePayload.Config(storage.filter(), storage.voidRules(), storage.compactRules());
+        Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs(), faces, config));
     }
 
     private void syncItems(QuantumInventory inventory, ServerPlayer serverPlayer) {
@@ -356,6 +370,60 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         broadcastChanges();
     }
 
+    // ---- server: filter and upgrade settings ----------------------------------
+    // The filter, destroyer and compactor belong to the network, so they can be
+    // changed from a terminal too. The magnet and the faces need the chest itself.
+
+    private QuantumStorage managed(ServerPlayer player) {
+        if (host == null || !stillValid(player)) return null;
+        QuantumStorage storage = host.storage();
+        return storage != null && storage.canManage(player) ? storage : null;
+    }
+
+    public void handleFilter(FilterRules filter, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null) return;
+        storage.setFilter(filter);
+        broadcastChanges();
+    }
+
+    public void handleVoidRules(List<VoidRule> rules, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null) return;
+        storage.setVoidRules(rules);
+        broadcastChanges();
+    }
+
+    public void handleCompactRule(CompactRule rule, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null) return;
+        storage.setCompactRule(rule);
+        broadcastChanges();
+    }
+
+    public void handleMagnet(boolean on, int range, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        QuantumChestBlockEntity chest = host != null ? host.chest() : null;
+        if (storage == null || chest == null) return;
+        chest.setMagnet(on, range);
+        broadcastChanges();
+    }
+
+    public void sendCompactOptions(ServerPlayer player) {
+        if (host == null || !stillValid(player) || !(player.level() instanceof ServerLevel level)) return;
+        Services.NETWORK.sendToPlayer(player, new UpgradeConfigPayloads.CompactOptions(containerId, Compactor.options(level)));
+    }
+
+    /** What the chest does with turned away items that can't leave. Same rules as the faces. */
+    public void handleReject(RejectAction action, ServerPlayer player) {
+        if (host == null || !stillValid(player)) return;
+        QuantumChestBlockEntity chest = host.chest();
+        QuantumStorage storage = host.storage();
+        if (chest == null || !storage.canManage(player) || !storage.hasUpgrade(ModItems.IO_UPGRADE.get())) return;
+        chest.setRejectAction(action);
+        broadcastChanges();
+    }
+
     // ---- client ------------------------------------------------------------
 
     public void applySync(SyncItemsPayload payload) {
@@ -375,6 +443,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         clientAccess = payload.access();
         clientTabs = List.copyOf(payload.tabs());
         clientFaces = payload.faces();
+        clientConfig = payload.config();
         clientStateVersion++;
         clientVersion++;
     }
@@ -398,6 +467,28 @@ public class QuantumChestMenu extends AbstractContainerMenu {
 
     public SyncStatePayload.Faces clientFaces() {
         return clientFaces;
+    }
+
+    public SyncStatePayload.Config clientConfig() {
+        return clientConfig;
+    }
+
+    public void applyCompactOptions(List<CompactOption> options) {
+        clientCompactOptions = List.copyOf(options);
+        clientStateVersion++;
+    }
+
+    /** Null until the server answered. */
+    public List<CompactOption> clientCompactOptions() {
+        return clientCompactOptions;
+    }
+
+    /** True if an unlocked upgrade slot holds this item. Works on the client, where slots are synced. */
+    public boolean hasUpgrade(net.minecraft.world.item.Item item) {
+        for (int i = 0; i < activeUpgradeSlots(); i++) {
+            if (slots.get(PLAYER_SLOTS + i).getItem().is(item)) return true;
+        }
+        return false;
     }
 
     /** True if an upgrade slot holds the I/O upgrade. Works on the client, where slots are synced. */

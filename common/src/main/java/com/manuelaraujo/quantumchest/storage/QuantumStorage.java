@@ -8,6 +8,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.ItemStackWithSlot;
@@ -19,7 +21,9 @@ import net.minecraft.world.level.Level;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -46,7 +50,10 @@ public final class QuantumStorage {
             CustomTab.CODEC.listOf().optionalFieldOf("tabs", List.of()).forGetter(QuantumStorage::tabs),
             ItemStackWithSlot.CODEC.listOf().optionalFieldOf("upgrades", List.of()).forGetter(QuantumStorage::upgradeList),
             QuantumInventory.Entry.CODEC.listOf().optionalFieldOf("items", List.of()).forGetter(s -> s.inventory.entryList()),
-            GlobalPos.CODEC.listOf().optionalFieldOf("chests", List.of()).forGetter(QuantumStorage::anchorList)
+            GlobalPos.CODEC.listOf().optionalFieldOf("chests", List.of()).forGetter(QuantumStorage::anchorList),
+            FilterRules.CODEC.optionalFieldOf("filter", FilterRules.NONE).forGetter(QuantumStorage::filter),
+            VoidRule.CODEC.listOf().optionalFieldOf("destroy", List.of()).forGetter(QuantumStorage::voidRules),
+            CompactRule.CODEC.listOf().optionalFieldOf("compact", List.of()).forGetter(QuantumStorage::compactRules)
     ).apply(i, QuantumStorage::new));
 
     private final UUID id;
@@ -55,6 +62,10 @@ public final class QuantumStorage {
     private final List<CustomTab> tabs = new ArrayList<>();
     // Where the placed chests of this storage are. More than one means they are entangled.
     private final Set<GlobalPos> anchors = new LinkedHashSet<>();
+    // Settings of the filter and the destroyer and compactor upgrades. They belong to the network.
+    private FilterRules filter = FilterRules.NONE;
+    private List<VoidRule> voidRules = List.of();
+    private final Map<Identifier, CompactRule> compactRules = new LinkedHashMap<>();
     // Upgrade slots. All seven always exist; the tier decides how many can be used.
     private final SimpleContainer upgrades = new SimpleContainer(ChestTier.QUANTUM.upgradeSlots()) {
         @Override
@@ -71,18 +82,21 @@ public final class QuantumStorage {
     // Bumped when owner, access, members, tier or tabs change, so open screens resync them
     private int stateVersion;
     // Game time of the last compacting pass. Not saved: a network compacts at most once a second.
-    private long compactedAt = Long.MIN_VALUE;
+    // Starts (and goes back to) "long ago", so the first pass happens right away.
+    private long compactedAt = -20;
     private Runnable onChange = () -> {
     };
 
     QuantumStorage(UUID id) {
-        this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), ChestTier.BASIC, List.of(), List.of(), List.of(), List.of());
+        this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), ChestTier.BASIC, List.of(), List.of(), List.of(), List.of(),
+                FilterRules.NONE, List.of(), List.of());
     }
 
     private QuantumStorage(UUID id, Optional<UUID> owner, String ownerName, AccessMode accessMode,
                            List<Member> members, ChestTier tier, List<CustomTab> tabs,
                            List<ItemStackWithSlot> upgrades, List<QuantumInventory.Entry> items,
-                           List<GlobalPos> anchors) {
+                           List<GlobalPos> anchors, FilterRules filter, List<VoidRule> voidRules,
+                           List<CompactRule> compactRules) {
         this.id = id;
         this.owner = owner.orElse(null);
         this.ownerName = ownerName;
@@ -97,6 +111,9 @@ public final class QuantumStorage {
         }
         this.inventory.load(items);
         this.anchors.addAll(anchors);
+        this.filter = filter;
+        this.voidRules = List.copyOf(voidRules);
+        for (CompactRule rule : compactRules) this.compactRules.put(rule.item(), rule);
     }
 
     void setOnChange(Runnable onChange) {
@@ -341,24 +358,59 @@ public final class QuantumStorage {
         }
     }
 
-    /** False if there are whitelist tabs and the item is in none of them. */
-    public boolean admits(ItemStack stack) {
-        boolean anyWhitelist = false;
-        for (CustomTab tab : tabs) {
-            if (tab.role() != TabRole.WHITELIST) continue;
-            anyWhitelist = true;
-            if (tab.matches(stack)) return true;
+    // ---- filter, destroyer and compactor settings ---------------------------
+
+    public FilterRules filter() {
+        return filter;
+    }
+
+    public void setFilter(FilterRules rules) {
+        filter = rules.sanitized();
+        stateChanged();
+    }
+
+    public List<VoidRule> voidRules() {
+        return voidRules;
+    }
+
+    public void setVoidRules(List<VoidRule> rules) {
+        voidRules = VoidRule.sanitize(rules);
+        stateChanged();
+    }
+
+    public List<CompactRule> compactRules() {
+        return List.copyOf(compactRules.values());
+    }
+
+    public void setCompactRule(CompactRule rule) {
+        if (rule.enabled() || rule.keep() > 0) {
+            compactRules.put(rule.item(), new CompactRule(rule.item(), rule.enabled(), Math.max(0, rule.keep())));
+        } else {
+            compactRules.remove(rule.item());
         }
-        return !anyWhitelist;
+        // Switching something on shows the result at once instead of on the next pass
+        compactedAt = -20;
+        stateChanged();
+    }
+
+    /** How many of this item to leave loose, or -1 if the compactor shouldn't touch it. */
+    public long compactKeep(Item item) {
+        CompactRule rule = compactRules.get(BuiltInRegistries.ITEM.getKey(item));
+        return rule != null && rule.enabled() ? rule.keep() : -1;
+    }
+
+    /** False if the filter keeps this item out. */
+    public boolean admits(ItemStack stack) {
+        return filter.admits(stack);
     }
 
     /** How many of this item to keep before destroying the rest, or -1 if it's never destroyed. */
     private long destroyLimit(ItemStack stack) {
         if (!hasUpgrade(ModItems.VOID_UPGRADE.get())) return -1;
         long limit = -1;
-        for (CustomTab tab : tabs) {
-            if (tab.role() == TabRole.VOID && tab.matches(stack)) {
-                limit = limit < 0 ? tab.limit() : Math.min(limit, tab.limit());
+        for (VoidRule rule : voidRules) {
+            if (rule.match().matches(stack)) {
+                limit = limit < 0 ? rule.keep() : Math.min(limit, rule.keep());
             }
         }
         return limit;
@@ -366,7 +418,7 @@ public final class QuantumStorage {
 
     /**
      * The one way in for everything automatic: magnet, hoppers, pipes and the
-     * I/O upgrade. Applies the whitelist, then the destroy tabs, then the
+     * I/O upgrade. Applies the filter, then the destroyer rules, then the
      * capacity. Items a player puts in by hand don't come through here.
      */
     public Accepted acceptAutomatic(ItemStack template, long amount, boolean simulate) {
@@ -391,7 +443,7 @@ public final class QuantumStorage {
 
     /** True at most once a second, for the compactor. Shared by every chest of the network. */
     public boolean compactDue(long gameTime) {
-        if (gameTime - compactedAt < 20) return false;
+        if (gameTime >= compactedAt && gameTime - compactedAt < 20) return false;
         compactedAt = gameTime;
         return true;
     }
@@ -483,6 +535,8 @@ public final class QuantumStorage {
         }
         anchors.addAll(other.anchors);
         other.anchors.clear();
+        // The first chest's filter and destroyer rules win; compactor choices it doesn't have are added
+        other.compactRules.forEach(compactRules::putIfAbsent);
         stateChanged();
         return spare;
     }
@@ -504,6 +558,10 @@ public final class QuantumStorage {
         members.addAll(other.members);
         tabs.clear();
         tabs.addAll(other.tabs);
+        filter = other.filter;
+        voidRules = other.voidRules;
+        compactRules.clear();
+        compactRules.putAll(other.compactRules);
         stateChanged();
     }
 
