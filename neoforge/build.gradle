@@ -18,6 +18,12 @@ neoForge {
             client()
             gameDirectory = project.file('runs/client')
         }
+        // Second player for multiplayer tests: ./gradlew :neoforge:runClient2
+        client2 {
+            client()
+            gameDirectory = project.file('runs/client2')
+            programArguments.addAll '--username', 'Tester'
+        }
         server {
             server()
             programArgument '--nogui'

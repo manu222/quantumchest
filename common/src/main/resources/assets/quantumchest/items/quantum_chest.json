@@ -1,6 +1,41 @@
 {
   "model": {
-    "type": "minecraft:model",
-    "model": "quantumchest:block/quantum_chest_basic"
+    "type": "minecraft:select",
+    "property": "minecraft:block_state",
+    "block_state_property": "tier",
+    "cases": [
+      {
+        "when": "reinforced",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:block/quantum_chest_reinforced"
+        }
+      },
+      {
+        "when": "advanced",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:block/quantum_chest_advanced"
+        }
+      },
+      {
+        "when": "elite",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:block/quantum_chest_elite"
+        }
+      },
+      {
+        "when": "quantum",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:block/quantum_chest_quantum"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "quantumchest:block/quantum_chest_basic"
+    }
   }
 }

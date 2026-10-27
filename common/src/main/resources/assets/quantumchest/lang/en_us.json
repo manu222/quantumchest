@@ -10,5 +10,6 @@
   "message.quantumchest.full": "The chest is full",
   "message.quantumchest.empty": "The chest is empty",
   "message.quantumchest.unlimited": "unlimited",
-  "message.quantumchest.summary": "%s chest · %s / %s items · %s types"
+  "message.quantumchest.summary": "%s chest · %s / %s items · %s types · owner: %s",
+  "message.quantumchest.locked": "This chest belongs to %s"
 }

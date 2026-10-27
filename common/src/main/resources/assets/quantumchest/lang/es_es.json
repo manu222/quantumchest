@@ -10,5 +10,6 @@
   "message.quantumchest.full": "El cofre está lleno",
   "message.quantumchest.empty": "El cofre está vacío",
   "message.quantumchest.unlimited": "ilimitado",
-  "message.quantumchest.summary": "Cofre %s · %s / %s items · %s tipos"
+  "message.quantumchest.summary": "Cofre %s · %s / %s items · %s tipos · dueño: %s",
+  "message.quantumchest.locked": "Este cofre es de %s"
 }

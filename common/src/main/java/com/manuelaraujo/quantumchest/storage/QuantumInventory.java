@@ -6,6 +6,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,13 +23,17 @@ public final class QuantumInventory {
      * Does not touch the stack, returns how many items were taken.
      */
     public long insert(ItemStack stack, long capacity) {
-        if (stack.isEmpty()) return 0;
-        long space = capacity - total;
-        long amount = Math.min(stack.getCount(), space);
-        if (amount <= 0) return 0;
-        items.merge(ItemKey.of(stack), amount, Long::sum);
-        total += amount;
-        return amount;
+        return insert(stack, stack.getCount(), capacity);
+    }
+
+    /** Same as above, for amounts bigger than a stack. Only the item type of {@code template} matters. */
+    public long insert(ItemStack template, long amount, long capacity) {
+        if (template.isEmpty() || amount <= 0) return 0;
+        long accepted = Math.min(amount, capacity - total);
+        if (accepted <= 0) return 0;
+        items.merge(ItemKey.of(template), accepted, QuantumInventory::addCapped);
+        total = addCapped(total, accepted);
+        return accepted;
     }
 
     /** Takes up to {@code max} items of the given type, capped at one stack. */
@@ -75,7 +80,7 @@ public final class QuantumInventory {
         total = 0;
     }
 
-    public Iterable<Entry> entries() {
+    public List<Entry> entryList() {
         return items.entrySet().stream()
                 .map(e -> new Entry(e.getKey().template(), e.getValue()))
                 .toList();
