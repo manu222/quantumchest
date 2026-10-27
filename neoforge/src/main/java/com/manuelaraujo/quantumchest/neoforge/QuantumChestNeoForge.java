@@ -2,9 +2,13 @@ package com.manuelaraujo.quantumchest.neoforge;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
+import com.manuelaraujo.quantumchest.command.QuantumCommands;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.level.block.BreakBlockEvent;
 
 @Mod(QuantumChest.MOD_ID)
@@ -13,7 +17,16 @@ public final class QuantumChestNeoForge {
     public QuantumChestNeoForge(IEventBus modBus) {
         QuantumChest.init();
         NeoForgeRegistrationFactory.registerAll(modBus);
+        modBus.addListener(NeoForgeNetwork::register);
         NeoForge.EVENT_BUS.addListener(QuantumChestNeoForge::onBreak);
+        NeoForge.EVENT_BUS.addListener(QuantumChestNeoForge::onRegisterCommands);
+        if (FMLEnvironment.getDist() == Dist.CLIENT) {
+            QuantumChestNeoForgeClient.init(modBus);
+        }
+    }
+
+    private static void onRegisterCommands(RegisterCommandsEvent event) {
+        QuantumCommands.register(event.getDispatcher());
     }
 
     private static void onBreak(BreakBlockEvent event) {

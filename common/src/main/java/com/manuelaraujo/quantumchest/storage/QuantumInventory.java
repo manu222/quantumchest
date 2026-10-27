@@ -17,6 +17,8 @@ import java.util.Map;
 public final class QuantumInventory {
     private final Map<ItemKey, Long> items = new LinkedHashMap<>();
     private long total;
+    // Bumped on every change, so open screens only resync when something moved
+    private int version;
 
     /**
      * Stores as much of the stack as fits under the capacity.
@@ -33,6 +35,7 @@ public final class QuantumInventory {
         if (accepted <= 0) return 0;
         items.merge(ItemKey.of(template), accepted, QuantumInventory::addCapped);
         total = addCapped(total, accepted);
+        version++;
         return accepted;
     }
 
@@ -47,6 +50,7 @@ public final class QuantumInventory {
             items.put(key, stored - amount);
         }
         total -= amount;
+        version++;
         return key.toStack(amount);
     }
 
@@ -57,6 +61,10 @@ public final class QuantumInventory {
 
     public long count(ItemKey key) {
         return items.getOrDefault(key, 0L);
+    }
+
+    public int version() {
+        return version;
     }
 
     public long totalItems() {
@@ -78,6 +86,7 @@ public final class QuantumInventory {
     public void clear() {
         items.clear();
         total = 0;
+        version++;
     }
 
     public List<Entry> entryList() {

@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.storage;
 
+import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.commands.Commands;
@@ -25,6 +26,7 @@ public final class QuantumStorage {
             Codec.STRING.optionalFieldOf("owner_name", "").forGetter(QuantumStorage::ownerName),
             AccessMode.CODEC.optionalFieldOf("access", AccessMode.PRIVATE).forGetter(QuantumStorage::accessMode),
             UUIDUtil.CODEC.listOf().optionalFieldOf("members", List.of()).forGetter(s -> List.copyOf(s.members)),
+            ChestTier.CODEC.optionalFieldOf("tier", ChestTier.BASIC).forGetter(QuantumStorage::tier),
             QuantumInventory.Entry.CODEC.listOf().optionalFieldOf("items", List.of()).forGetter(s -> s.inventory.entryList())
     ).apply(i, QuantumStorage::new));
 
@@ -34,20 +36,23 @@ public final class QuantumStorage {
     private UUID owner;
     private String ownerName;
     private AccessMode accessMode;
+    // Tier of the chest that last showed this storage, so a recovered chest comes back at the same tier
+    private ChestTier tier;
     private Runnable onChange = () -> {
     };
 
     QuantumStorage(UUID id) {
-        this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), List.of());
+        this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), ChestTier.BASIC, List.of());
     }
 
     private QuantumStorage(UUID id, Optional<UUID> owner, String ownerName, AccessMode accessMode,
-                           List<UUID> members, List<QuantumInventory.Entry> items) {
+                           List<UUID> members, ChestTier tier, List<QuantumInventory.Entry> items) {
         this.id = id;
         this.owner = owner.orElse(null);
         this.ownerName = ownerName;
         this.accessMode = accessMode;
         this.members.addAll(members);
+        this.tier = tier;
         this.inventory.load(items);
     }
 
@@ -95,6 +100,21 @@ public final class QuantumStorage {
         markChanged();
     }
 
+    public ChestTier tier() {
+        return tier;
+    }
+
+    public void setTier(ChestTier tier) {
+        if (this.tier != tier) {
+            this.tier = tier;
+            markChanged();
+        }
+    }
+
+    public boolean isPublic() {
+        return accessMode == AccessMode.PUBLIC;
+    }
+
     public Set<UUID> members() {
         return Set.copyOf(members);
     }
@@ -111,19 +131,27 @@ public final class QuantumStorage {
         return owner != null && owner.equals(player.getUUID());
     }
 
-    /** Open the chest, put things in, take things out. */
+    /** Open the chest, put things in and take them out. */
     public boolean canUse(Player player) {
-        if (owner == null || isOwner(player) || isOperator(player)) return true;
-        return switch (accessMode) {
-            case PUBLIC -> true;
-            case LIST -> members.contains(player.getUUID());
-            case PRIVATE -> false;
-        };
+        return canUse(owner, accessMode == AccessMode.PUBLIC, members, player.getUUID()) || isOperator(player);
     }
 
-    /** Break, upgrade, link, change permissions. Members can't do this. */
+    /**
+     * Break the chest and carry it off. Same people who can use it: the
+     * contents always travel inside the dropped chest, nothing spills.
+     */
+    public boolean canBreak(Player player) {
+        return canUse(player);
+    }
+
+    /** Change permissions (and later: upgrade, link). Owner and operators only. */
     public boolean canManage(Player player) {
         return owner == null || isOwner(player) || isOperator(player);
+    }
+
+    /** Shared with the client, which only has the synced copy of these fields. */
+    public static boolean canUse(UUID owner, boolean isPublic, Set<UUID> members, UUID player) {
+        return owner == null || owner.equals(player) || isPublic || members.contains(player);
     }
 
     private static boolean isOperator(Player player) {

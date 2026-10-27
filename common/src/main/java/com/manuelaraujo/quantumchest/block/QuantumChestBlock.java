@@ -7,7 +7,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -29,13 +28,10 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 
-import java.util.UUID;
 
 /**
- * Temporary controls until the real screen exists:
- * - right click holding something: stores the whole stack
- * - right click with an empty hand: shows what is inside
- * - sneak + right click with an empty hand: takes one stack out
+ * The chest block. Right click opens the storage screen; the items live in
+ * the world storage the block entity points to.
  */
 public class QuantumChestBlock extends BaseEntityBlock {
     public static final MapCodec<QuantumChestBlock> CODEC = simpleCodec(QuantumChestBlock::new);
@@ -86,15 +82,15 @@ public class QuantumChestBlock extends BaseEntityBlock {
     }
 
     /**
-     * Called by the loaders' block break events. Only the owner and server
-     * operators may break a chest; on the client we always say yes and let
-     * the server decide.
+     * Called by the loaders' block break events. Whoever may use the chest may
+     * also break it (the contents travel inside the dropped item). On the
+     * client we always say yes and let the server decide.
      */
     public static boolean canBreak(LevelAccessor level, BlockPos pos, Player player) {
         if (level.isClientSide() || player == null) return true;
         if (!(level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest)) return true;
         QuantumStorage storage = chest.existingStorage();
-        boolean allowed = storage == null || storage.canManage(player);
+        boolean allowed = storage == null || storage.canBreak(player);
         if (!allowed) {
             player.sendOverlayMessage(Component.translatable("message.quantumchest.locked", storage.ownerName()));
         }
@@ -105,19 +101,18 @@ public class QuantumChestBlock extends BaseEntityBlock {
      * Mining speed 0 for anyone who may not break the chest. This has to hold on
      * the client too: if the client thinks it finished mining, the server keeps
      * the break pending and completes it as soon as the permission changes.
-     * The client only knows the owner, not who is an operator, so operators
-     * can only break other players' chests in creative.
+     * The client knows the owner, the mode and the members, but not who is an
+     * operator, so operators can only break other players' private chests in creative.
      */
     @Override
     public float getDestroyProgress(BlockState state, Player player, BlockGetter level, BlockPos pos) {
         if (level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest) {
             boolean allowed;
             if (player.level().isClientSide()) {
-                UUID owner = chest.cachedOwner();
-                allowed = owner == null || owner.equals(player.getUUID());
+                allowed = chest.clientCanUse(player);
             } else {
                 QuantumStorage storage = chest.existingStorage();
-                allowed = storage == null || storage.canManage(player);
+                allowed = storage == null || storage.canBreak(player);
             }
             if (!allowed) return 0.0f;
         }
@@ -145,25 +140,13 @@ public class QuantumChestBlock extends BaseEntityBlock {
         return super.playerWillDestroy(level, pos, state, player);
     }
 
-    // ---- temporary controls ------------------------------------------------
+    // ---- opening the chest -------------------------------------------------
 
+    /** Right click with something in hand opens the chest too, same as an empty hand. */
     @Override
     protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
                                           Player player, InteractionHand hand, BlockHitResult hit) {
-        if (stack.isEmpty()) return InteractionResult.TRY_WITH_EMPTY_HAND;
-        if (level.isClientSide()) return InteractionResult.SUCCESS;
-        if (!(level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest)) return InteractionResult.PASS;
-        if (!checkAccess(chest, player)) return InteractionResult.SUCCESS;
-
-        Component name = stack.getHoverName();
-        long stored = chest.insert(stack);
-        if (stored > 0) {
-            stack.shrink((int) stored);
-            player.sendOverlayMessage(Component.translatable("message.quantumchest.stored", stored, name));
-        } else {
-            player.sendOverlayMessage(Component.translatable("message.quantumchest.full"));
-        }
-        return InteractionResult.SUCCESS;
+        return InteractionResult.TRY_WITH_EMPTY_HAND;
     }
 
     @Override
@@ -171,25 +154,8 @@ public class QuantumChestBlock extends BaseEntityBlock {
                                                BlockHitResult hit) {
         if (level.isClientSide()) return InteractionResult.SUCCESS;
         if (!(level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest)) return InteractionResult.PASS;
-        if (!checkAccess(chest, player)) return InteractionResult.SUCCESS;
-
-        if (player.isShiftKeyDown()) {
-            ItemStack taken = chest.extractFirst();
-            if (taken.isEmpty()) {
-                player.sendOverlayMessage(Component.translatable("message.quantumchest.empty"));
-            } else if (!player.getInventory().add(taken)) {
-                Containers.dropItemStack(level, player.getX(), player.getY(), player.getZ(), taken);
-            }
-        } else {
-            QuantumStorage storage = chest.storage();
-            ChestTier tier = state.getValue(TIER);
-            Component capacity = tier.isUnlimited()
-                    ? Component.translatable("message.quantumchest.unlimited")
-                    : Component.literal(String.valueOf(tier.capacity()));
-            player.sendOverlayMessage(Component.translatable("message.quantumchest.summary",
-                    Component.translatable(tier.translationKey()),
-                    storage.inventory().totalItems(), capacity, storage.inventory().typeCount(),
-                    storage.ownerName()));
+        if (checkAccess(chest, player)) {
+            player.openMenu(chest);
         }
         return InteractionResult.SUCCESS;
     }

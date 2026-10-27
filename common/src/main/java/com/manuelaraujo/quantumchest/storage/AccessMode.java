@@ -3,10 +3,13 @@ package com.manuelaraujo.quantumchest.storage;
 import com.mojang.serialization.Codec;
 import net.minecraft.util.StringRepresentable;
 
-/** Who besides the owner (and server operators) may use a chest. */
+/**
+ * PUBLIC: anyone can open, use and break the chest, like a vanilla chest.
+ * PRIVATE: only the owner and the players on the member list.
+ * Changing permissions is always the owner's job (and operators').
+ */
 public enum AccessMode implements StringRepresentable {
     PRIVATE("private"),
-    LIST("list"),
     PUBLIC("public");
 
     public static final Codec<AccessMode> CODEC = StringRepresentable.fromEnum(AccessMode::values);

@@ -1,6 +1,8 @@
 package com.manuelaraujo.quantumchest.platform.services;
 
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
 
@@ -20,4 +22,10 @@ public interface IPlatformHelper {
      * loaders open those up with their own patches.
      */
     CreativeModeTab creativeTab(Component title, Supplier<ItemStack> icon, Supplier<List<ItemStack>> contents);
+
+    /**
+     * Vanilla keeps the MenuType constructor private; both loaders make it
+     * public, so the loaders build it.
+     */
+    <T extends AbstractContainerMenu> MenuType<T> menuType(MenuFactory<T> factory);
 }

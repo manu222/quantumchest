@@ -15,7 +15,9 @@ public final class ModBlocks {
             key -> new QuantumChestBlock(BlockBehaviour.Properties.of()
                     .setId(key)
                     .mapColor(MapColor.COLOR_PURPLE)
-                    .strength(3.5f, 6.0f)
+                    // Normal mining time, but no explosion can break it (same resistance as bedrock).
+                    // Withers and the dragon are stopped by the block tags in data/minecraft/tags/block.
+                    .strength(3.5f, 3_600_000f)
                     .sound(SoundType.METAL)));
 
     private ModBlocks() {

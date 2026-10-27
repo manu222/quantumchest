@@ -2,6 +2,7 @@ package com.manuelaraujo.quantumchest.block.entity;
 
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
+import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.registry.ModDataComponents;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
@@ -14,9 +15,13 @@ import net.minecraft.core.component.DataComponentGetter;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.MenuProvider;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -26,6 +31,7 @@ import net.minecraft.world.level.storage.ValueOutput;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,15 +39,19 @@ import java.util.UUID;
  * {@link QuantumStorageData}, so they survive when the chest is broken.
  * Everything that touches the storage runs on the server only.
  */
-public class QuantumChestBlockEntity extends BlockEntity {
+public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider {
     private static final String STORAGE_TAG = "StorageId";
     private static final String OWNER_TAG = "Owner";
+    private static final String PUBLIC_TAG = "Public";
+    private static final String MEMBERS_TAG = "Members";
     // Phase 0 kept the items inside the block. Read them once and move them over.
     private static final String LEGACY_ITEMS_TAG = "Items";
 
     private UUID storageId;
-    // Copy of the storage owner, sent to clients so they know whether they may break the chest
+    // Copy of the storage permissions, sent to clients so they know whether they may break the chest
     private UUID ownerCache;
+    private boolean publicCache;
+    private Set<UUID> membersCache = Set.of();
     private List<QuantumInventory.Entry> legacyItems = List.of();
 
     public QuantumChestBlockEntity(BlockPos pos, BlockState state) {
@@ -73,7 +83,8 @@ public class QuantumChestBlockEntity extends BlockEntity {
             storage.markChanged();
             setChanged();
         }
-        syncOwner(storage);
+        storage.setTier(tier());
+        syncAccess(storage);
         return storage;
     }
 
@@ -82,18 +93,22 @@ public class QuantumChestBlockEntity extends BlockEntity {
         QuantumStorage storage = storage();
         if (!storage.hasOwner()) {
             storage.setOwner(player);
-            syncOwner(storage);
+            syncAccess(storage);
         }
     }
 
-    /** Owner as the client sees it. Null means nobody owns it yet. */
-    public UUID cachedOwner() {
-        return ownerCache;
+    /** What the client can check without asking the server. Operators aren't known here. */
+    public boolean clientCanUse(Player player) {
+        return QuantumStorage.canUse(ownerCache, publicCache, membersCache, player.getUUID());
     }
 
-    private void syncOwner(QuantumStorage storage) {
-        if (Objects.equals(ownerCache, storage.owner())) return;
+    /** Copies the storage permissions into the block and tells clients if they changed. */
+    public void syncAccess(QuantumStorage storage) {
+        if (Objects.equals(ownerCache, storage.owner()) && publicCache == storage.isPublic()
+                && membersCache.equals(storage.members())) return;
         ownerCache = storage.owner();
+        publicCache = storage.isPublic();
+        membersCache = storage.members();
         setChanged();
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
@@ -120,13 +135,14 @@ public class QuantumChestBlockEntity extends BlockEntity {
         return stored;
     }
 
-    public ItemStack extractFirst() {
-        QuantumStorage storage = storage();
-        ItemKey key = storage.inventory().firstKey();
-        if (key == null) return ItemStack.EMPTY;
-        ItemStack taken = storage.inventory().extract(key, key.maxStackSize());
-        storage.markChanged();
-        return taken;
+    @Override
+    public Component getDisplayName() {
+        return Component.translatable("container.quantumchest.quantum_chest");
+    }
+
+    @Override
+    public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
+        return new QuantumChestMenu(containerId, inventory, this);
     }
 
     @Override
@@ -137,6 +153,13 @@ public class QuantumChestBlockEntity extends BlockEntity {
         }
         if (ownerCache != null) {
             output.store(OWNER_TAG, UUIDUtil.CODEC, ownerCache);
+        }
+        if (publicCache) {
+            output.putBoolean(PUBLIC_TAG, true);
+        }
+        if (!membersCache.isEmpty()) {
+            var members = output.list(MEMBERS_TAG, UUIDUtil.CODEC);
+            membersCache.forEach(members::add);
         }
         if (!legacyItems.isEmpty()) {
             var list = output.list(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC);
@@ -149,6 +172,8 @@ public class QuantumChestBlockEntity extends BlockEntity {
         super.loadAdditional(input);
         storageId = input.read(STORAGE_TAG, UUIDUtil.CODEC).orElse(null);
         ownerCache = input.read(OWNER_TAG, UUIDUtil.CODEC).orElse(null);
+        publicCache = input.getBooleanOr(PUBLIC_TAG, false);
+        membersCache = Set.copyOf(input.listOrEmpty(MEMBERS_TAG, UUIDUtil.CODEC).stream().toList());
         legacyItems = input.listOrEmpty(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC).stream().toList();
     }
 
@@ -189,5 +214,7 @@ public class QuantumChestBlockEntity extends BlockEntity {
         super.removeComponentsFromTag(output);
         output.discard(STORAGE_TAG);
         output.discard(OWNER_TAG);
+        output.discard(PUBLIC_TAG);
+        output.discard(MEMBERS_TAG);
     }
 }

@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.block;
 
+import com.mojang.serialization.Codec;
 import net.minecraft.util.StringRepresentable;
 
 /**
@@ -12,6 +13,8 @@ public enum ChestTier implements StringRepresentable {
     ADVANCED("advanced", 1_000_000L, 3),
     ELITE("elite", 100_000_000L, 5),
     QUANTUM("quantum", Long.MAX_VALUE, 7);
+
+    public static final Codec<ChestTier> CODEC = StringRepresentable.fromEnum(ChestTier::values);
 
     private final String name;
     private final long capacity;

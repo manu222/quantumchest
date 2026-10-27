@@ -56,6 +56,10 @@ public final class QuantumStorageData extends SavedData {
         return storages.size();
     }
 
+    public java.util.Collection<QuantumStorage> all() {
+        return java.util.Collections.unmodifiableCollection(storages.values());
+    }
+
     private void track(QuantumStorage storage) {
         storage.setOnChange(this::setDirty);
         storages.put(storage.id(), storage);

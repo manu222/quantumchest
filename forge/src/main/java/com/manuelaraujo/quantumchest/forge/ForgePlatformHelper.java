@@ -1,7 +1,11 @@
 package com.manuelaraujo.quantumchest.forge;
 
 import com.manuelaraujo.quantumchest.platform.services.IPlatformHelper;
+import com.manuelaraujo.quantumchest.platform.services.MenuFactory;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fml.ModList;
@@ -28,5 +32,10 @@ public final class ForgePlatformHelper implements IPlatformHelper {
                 .icon(icon)
                 .displayItems((parameters, output) -> contents.get().forEach(output::accept))
                 .build();
+    }
+
+    @Override
+    public <T extends AbstractContainerMenu> MenuType<T> menuType(MenuFactory<T> factory) {
+        return new MenuType<>(factory::create, FeatureFlags.VANILLA_SET);
     }
 }

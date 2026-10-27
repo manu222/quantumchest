@@ -13,6 +13,7 @@ public final class ModRegistries {
         ModBlocks.init();
         ModItems.init();
         ModBlockEntities.init();
+        ModMenus.init();
         ModCreativeTabs.init();
     }
 }
