@@ -7,6 +7,7 @@ import com.manuelaraujo.quantumchest.item.QuantumEntanglerItem;
 import com.manuelaraujo.quantumchest.item.QuantumTunnelItem;
 import com.manuelaraujo.quantumchest.item.SuperpositionTerminalItem;
 import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
+import com.manuelaraujo.quantumchest.item.UpgradeItem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
@@ -44,6 +45,22 @@ public final class ModItems {
                             Component.translatable("item.quantumchest.quantum_tunnel.lore").withStyle(ChatFormatting.GRAY),
                             Component.translatable("item.quantumchest.upgrade.min_tier",
                                     Component.translatable(ChestTier.ELITE.translationKey())).withStyle(ChatFormatting.DARK_GRAY))))));
+
+    public static final RegistryEntry<Item, UpgradeItem> MAGNET_UPGRADE = upgrade("magnet_upgrade", ChestTier.BASIC);
+    public static final RegistryEntry<Item, UpgradeItem> VOID_UPGRADE = upgrade("void_upgrade", ChestTier.BASIC);
+    public static final RegistryEntry<Item, UpgradeItem> COMPACTOR_UPGRADE = upgrade("compactor_upgrade", ChestTier.REINFORCED);
+    public static final RegistryEntry<Item, UpgradeItem> IO_UPGRADE = upgrade("io_upgrade", ChestTier.REINFORCED);
+
+    public static final List<RegistryEntry<Item, UpgradeItem>> UPGRADES = List.of(MAGNET_UPGRADE, VOID_UPGRADE, COMPACTOR_UPGRADE, IO_UPGRADE);
+
+    /** An upgrade with two lore lines: what it does and the tier it needs. */
+    private static RegistryEntry<Item, UpgradeItem> upgrade(String name, ChestTier minTier) {
+        return ITEMS.registerWithKey(name, key -> new UpgradeItem(minTier, new Item.Properties().setId(key).stacksTo(1)
+                .component(DataComponents.LORE, new ItemLore(List.of(
+                        Component.translatable("item.quantumchest." + name + ".lore").withStyle(ChatFormatting.GRAY),
+                        Component.translatable("item.quantumchest.upgrade.min_tier",
+                                Component.translatable(minTier.translationKey())).withStyle(ChatFormatting.DARK_GRAY))))));
+    }
 
     private static RegistryEntry<Item, TierUpgradeItem> kit(String name, ChestTier target) {
         return ITEMS.registerWithKey(name, key -> {

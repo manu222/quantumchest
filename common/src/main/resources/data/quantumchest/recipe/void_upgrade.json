@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "OCO",
+    "CLC",
+    "OCO"
+  ],
+  "key": {
+    "O": "minecraft:obsidian",
+    "C": "minecraft:cactus",
+    "L": "minecraft:lava_bucket"
+  },
+  "result": {
+    "id": "quantumchest:void_upgrade"
+  }
+}

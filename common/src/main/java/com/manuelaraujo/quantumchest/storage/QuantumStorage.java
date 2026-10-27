@@ -2,6 +2,7 @@ package com.manuelaraujo.quantumchest.storage;
 
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.item.QuantumTunnelItem;
+import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.commands.Commands;
@@ -12,6 +13,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
@@ -68,6 +70,8 @@ public final class QuantumStorage {
     private ChestTier tier;
     // Bumped when owner, access, members, tier or tabs change, so open screens resync them
     private int stateVersion;
+    // Game time of the last compacting pass. Not saved: a network compacts at most once a second.
+    private long compactedAt = Long.MIN_VALUE;
     private Runnable onChange = () -> {
     };
 
@@ -273,6 +277,14 @@ public final class QuantumStorage {
         return found;
     }
 
+    /** True if an unlocked slot holds this exact upgrade item. */
+    public boolean hasUpgrade(Item item) {
+        for (int i = 0; i < tier.upgradeSlots(); i++) {
+            if (upgrades.getItem(i).is(item)) return true;
+        }
+        return false;
+    }
+
     public boolean hasTunnel() {
         return hasUpgrade(QuantumTunnelItem.class);
     }
@@ -316,6 +328,80 @@ public final class QuantumStorage {
             if (upgrades.getItem(i).isEmpty()) free++;
         }
         return free;
+    }
+
+    // ---- automatic input ---------------------------------------------------
+
+    /** What an automatic insert did: how many were stored and how many destroyed. */
+    public record Accepted(long stored, long destroyed) {
+        public static final Accepted NONE = new Accepted(0, 0);
+
+        public long total() {
+            return stored + destroyed;
+        }
+    }
+
+    /** False if there are whitelist tabs and the item is in none of them. */
+    public boolean admits(ItemStack stack) {
+        boolean anyWhitelist = false;
+        for (CustomTab tab : tabs) {
+            if (tab.role() != TabRole.WHITELIST) continue;
+            anyWhitelist = true;
+            if (tab.matches(stack)) return true;
+        }
+        return !anyWhitelist;
+    }
+
+    /** How many of this item to keep before destroying the rest, or -1 if it's never destroyed. */
+    private long destroyLimit(ItemStack stack) {
+        if (!hasUpgrade(ModItems.VOID_UPGRADE.get())) return -1;
+        long limit = -1;
+        for (CustomTab tab : tabs) {
+            if (tab.role() == TabRole.VOID && tab.matches(stack)) {
+                limit = limit < 0 ? tab.limit() : Math.min(limit, tab.limit());
+            }
+        }
+        return limit;
+    }
+
+    /**
+     * The one way in for everything automatic: magnet, hoppers, pipes and the
+     * I/O upgrade. Applies the whitelist, then the destroy tabs, then the
+     * capacity. Items a player puts in by hand don't come through here.
+     */
+    public Accepted acceptAutomatic(ItemStack template, long amount, boolean simulate) {
+        if (template.isEmpty() || amount <= 0 || !admits(template)) return Accepted.NONE;
+        long toStore = amount;
+        long destroyed = 0;
+        long limit = destroyLimit(template);
+        if (limit >= 0) {
+            long room = Math.max(0, limit - inventory.count(ItemKey.of(template)));
+            toStore = Math.min(amount, room);
+            destroyed = amount - toStore;
+        }
+        long stored;
+        if (simulate) {
+            stored = Math.max(0, Math.min(toStore, tier.capacity() - inventory.totalItems()));
+        } else {
+            stored = inventory.insert(template, toStore, tier.capacity());
+            if (stored > 0 || destroyed > 0) markChanged();
+        }
+        return new Accepted(stored, destroyed);
+    }
+
+    /** True at most once a second, for the compactor. Shared by every chest of the network. */
+    public boolean compactDue(long gameTime) {
+        if (gameTime - compactedAt < 20) return false;
+        compactedAt = gameTime;
+        return true;
+    }
+
+    /** The custom tab with that name, or null. Faces of the I/O upgrade refer to tabs by name. */
+    public CustomTab tabNamed(String name) {
+        for (CustomTab tab : tabs) {
+            if (tab.name().equals(name)) return tab;
+        }
+        return null;
     }
 
     // ---- placed chests -----------------------------------------------------

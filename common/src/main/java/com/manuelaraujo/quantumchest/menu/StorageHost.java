@@ -23,6 +23,11 @@ public interface StorageHost {
 
     boolean stillValid(Player player);
 
+    /** The placed chest, if the screen was opened from one. The faces of the I/O upgrade need it. */
+    default QuantumChestBlockEntity chest() {
+        return null;
+    }
+
     /** Opened by right clicking a chest. */
     record Chest(QuantumChestBlockEntity chest) implements StorageHost {
         // Called every tick, so it only looks the storage up instead of syncing the chest each time

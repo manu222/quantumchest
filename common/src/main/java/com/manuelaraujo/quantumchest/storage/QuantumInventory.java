@@ -54,6 +54,21 @@ public final class QuantumInventory {
         return key.toStack(amount);
     }
 
+    /** Takes up to {@code amount} of the type, with no stack limit. Returns how many were taken. */
+    public long remove(ItemKey key, long amount) {
+        Long stored = items.get(key);
+        if (stored == null || amount <= 0) return 0;
+        long taken = Math.min(stored, amount);
+        if (taken == stored) {
+            items.remove(key);
+        } else {
+            items.put(key, stored - taken);
+        }
+        total -= taken;
+        version++;
+        return taken;
+    }
+
     /** Oldest stored type, handy until the real interface exists. */
     public ItemKey firstKey() {
         return items.isEmpty() ? null : items.keySet().iterator().next();

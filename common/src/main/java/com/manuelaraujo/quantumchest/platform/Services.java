@@ -2,6 +2,7 @@ package com.manuelaraujo.quantumchest.platform;
 
 import com.manuelaraujo.quantumchest.platform.services.INetworkHelper;
 import com.manuelaraujo.quantumchest.platform.services.IPlatformHelper;
+import com.manuelaraujo.quantumchest.platform.services.ITransferHelper;
 
 import java.util.ServiceLoader;
 
@@ -12,6 +13,7 @@ import java.util.ServiceLoader;
 public final class Services {
     public static final IPlatformHelper PLATFORM = load(IPlatformHelper.class);
     public static final INetworkHelper NETWORK = load(INetworkHelper.class);
+    public static final ITransferHelper TRANSFER = load(ITransferHelper.class);
 
     private Services() {
     }

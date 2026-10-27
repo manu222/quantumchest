@@ -23,6 +23,11 @@ public final class QuantumNetwork {
         if (menu != null) menu.handleSetTabs(payload.tabs(), player);
     }
 
+    public static void onSetFace(SetFacePayload payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleFace(payload.face().side(), payload.face().mode(), payload.face().tab(), player);
+    }
+
     private static QuantumChestMenu openMenu(ServerPlayer player, int containerId) {
         if (player == null || player.isSpectator()) return null;
         if (player.containerMenu instanceof QuantumChestMenu menu && menu.containerId == containerId) return menu;

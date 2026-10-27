@@ -2,8 +2,10 @@ package com.manuelaraujo.quantumchest.forge;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
+import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import com.manuelaraujo.quantumchest.command.QuantumCommands;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -30,5 +32,14 @@ public final class QuantumChestForge {
         BlockEvent.BreakEvent.BUS.addListener(protectChests);
 
         RegisterCommandsEvent.BUS.addListener(event -> QuantumCommands.register(event.getDispatcher()));
+
+        // Hoppers and pipes reach the chest through this, face by face
+        AttachCapabilitiesEvent.BlockEntities.BUS.addListener(event -> {
+            if (event.getObject() instanceof QuantumChestBlockEntity chest) {
+                ForgeChestCapabilities capabilities = new ForgeChestCapabilities(chest);
+                event.addCapability(QuantumChest.id("item_handler"), capabilities);
+                event.addListener(capabilities::invalidate);
+            }
+        });
     }
 }

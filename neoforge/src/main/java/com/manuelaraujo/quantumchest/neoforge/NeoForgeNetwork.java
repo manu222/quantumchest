@@ -4,6 +4,7 @@ import com.manuelaraujo.quantumchest.client.ClientHandlers;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.ClickPayload;
 import com.manuelaraujo.quantumchest.network.QuantumNetwork;
+import com.manuelaraujo.quantumchest.network.SetFacePayload;
 import com.manuelaraujo.quantumchest.network.SetTabsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
@@ -15,7 +16,7 @@ final class NeoForgeNetwork {
     }
 
     static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("2")
+        event.registrar("3")
                 // Client handlers are only ever called on the client, so the
                 // dedicated server never loads ClientHandlers
                 .playToClient(SyncItemsPayload.TYPE, SyncItemsPayload.STREAM_CODEC,
@@ -27,6 +28,8 @@ final class NeoForgeNetwork {
                 .playToServer(ChestSettingsPayload.TYPE, ChestSettingsPayload.STREAM_CODEC,
                         (payload, context) -> QuantumNetwork.onSettings(payload, (ServerPlayer) context.player()))
                 .playToServer(SetTabsPayload.TYPE, SetTabsPayload.STREAM_CODEC,
-                        (payload, context) -> QuantumNetwork.onSetTabs(payload, (ServerPlayer) context.player()));
+                        (payload, context) -> QuantumNetwork.onSetTabs(payload, (ServerPlayer) context.player()))
+                .playToServer(SetFacePayload.TYPE, SetFacePayload.STREAM_CODEC,
+                        (payload, context) -> QuantumNetwork.onSetFace(payload, (ServerPlayer) context.player()));
     }
 }

@@ -5,6 +5,7 @@ import com.manuelaraujo.quantumchest.client.ClientHandlers;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.ClickPayload;
 import com.manuelaraujo.quantumchest.network.QuantumNetwork;
+import com.manuelaraujo.quantumchest.network.SetFacePayload;
 import com.manuelaraujo.quantumchest.network.SetTabsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
@@ -13,7 +14,7 @@ import net.minecraftforge.network.ChannelBuilder;
 import net.minecraftforge.network.SimpleChannel;
 
 final class ForgeNetwork {
-    private static final int PROTOCOL_VERSION = 2;
+    private static final int PROTOCOL_VERSION = 3;
 
     // addMain runs the handlers on the game thread, not the network thread.
     // The clientbound handlers only ever run on the client.
@@ -36,6 +37,8 @@ final class ForgeNetwork {
                             (payload, context) -> QuantumNetwork.onSettings(payload, context.getSender()))
                     .addMain(SetTabsPayload.class, SetTabsPayload.STREAM_CODEC,
                             (payload, context) -> QuantumNetwork.onSetTabs(payload, context.getSender()))
+                    .addMain(SetFacePayload.class, SetFacePayload.STREAM_CODEC,
+                            (payload, context) -> QuantumNetwork.onSetFace(payload, context.getSender()))
             .build();
 
     private ForgeNetwork() {

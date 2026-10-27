@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "IHI",
+    "RCR",
+    "IDI"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "H": "minecraft:hopper",
+    "R": "minecraft:redstone",
+    "C": "minecraft:comparator",
+    "D": "minecraft:dropper"
+  },
+  "result": {
+    "id": "quantumchest:io_upgrade"
+  }
+}

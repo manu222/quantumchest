@@ -1,10 +1,14 @@
 package com.manuelaraujo.quantumchest.block.entity;
 
+import com.manuelaraujo.quantumchest.automation.ChestAutomation;
+import com.manuelaraujo.quantumchest.automation.FaceMode;
+import com.manuelaraujo.quantumchest.automation.FaceSetting;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.item.QuantumChestItem;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.menu.StorageHost;
+import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.registry.ModDataComponents;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
@@ -13,6 +17,7 @@ import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.QuantumStorageData;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponentGetter;
@@ -22,6 +27,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -34,6 +40,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -52,6 +60,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private static final String PUBLIC_TAG = "Public";
     private static final String MEMBERS_TAG = "Members";
     private static final String MEMBER_NAMES_TAG = "MemberNames";
+    private static final String FACES_TAG = "Faces";
     // Phase 0 kept the items inside the block. Read them once and move them over.
     private static final String LEGACY_ITEMS_TAG = "Items";
 
@@ -64,9 +73,51 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private List<QuantumInventory.Entry> legacyItems = List.of();
     // Set after the first server tick, once the chest has caught up with its network
     private boolean checked;
+    // What each face does with the I/O upgrade. Faces belong to this chest, not to the network.
+    private final FaceMode[] faceModes = new FaceMode[6];
+    private final String[] exportTabs = new String[6];
+    // Bumped when a face changes, so open screens resync
+    private int faceVersion;
 
     public QuantumChestBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.QUANTUM_CHEST.get(), pos, state);
+        Arrays.fill(faceModes, FaceMode.OFF);
+        Arrays.fill(exportTabs, "");
+    }
+
+    // ---- faces (I/O upgrade) -----------------------------------------------
+
+    public FaceMode faceMode(Direction side) {
+        return faceModes[side.get3DDataValue()];
+    }
+
+    /** Name of the tab an exporting face sends, or "" for none. */
+    public String exportTab(Direction side) {
+        return exportTabs[side.get3DDataValue()];
+    }
+
+    public int faceVersion() {
+        return faceVersion;
+    }
+
+    public void setFace(Direction side, FaceMode mode, String tab) {
+        int i = side.get3DDataValue();
+        String cleanTab = tab.length() > FaceSetting.MAX_TAB_NAME ? tab.substring(0, FaceSetting.MAX_TAB_NAME) : tab;
+        if (faceModes[i] == mode && exportTabs[i].equals(cleanTab)) return;
+        faceModes[i] = mode;
+        exportTabs[i] = cleanTab;
+        faceVersion++;
+        setChanged();
+        if (level instanceof ServerLevel serverLevel) Services.TRANSFER.invalidate(serverLevel, worldPosition);
+    }
+
+    /** All six faces, in Direction order. */
+    public List<FaceSetting> faces() {
+        List<FaceSetting> list = new ArrayList<>();
+        for (Direction side : Direction.values()) {
+            list.add(new FaceSetting(side, faceMode(side), exportTab(side)));
+        }
+        return list;
     }
 
     public ChestTier tier() {
@@ -141,9 +192,15 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
      * while it was unloaded (a kit used on another chest of the network).
      */
     public static void serverTick(Level level, BlockPos pos, BlockState state, QuantumChestBlockEntity chest) {
-        if (chest.checked) return;
-        chest.checked = true;
-        if (chest.storageId != null) chest.storage();
+        if (!chest.checked) {
+            chest.checked = true;
+            if (chest.storageId != null) chest.storage();
+        }
+        if (chest.storageId == null || !(level instanceof ServerLevel serverLevel)) return;
+        QuantumStorage storage = chest.existingStorage();
+        if (storage != null && storage.worksIn(level.dimension())) {
+            ChestAutomation.tick(serverLevel, chest, storage);
+        }
     }
 
     /** The chest is gone for good (broken, not unloaded): take it off its network. */
@@ -240,6 +297,11 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
             var list = output.list(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC);
             legacyItems.forEach(list::add);
         }
+        List<FaceSetting> used = faces().stream().filter(f -> f.mode() != FaceMode.OFF || !f.tab().isEmpty()).toList();
+        if (!used.isEmpty()) {
+            var list = output.list(FACES_TAG, FaceSetting.CODEC);
+            used.forEach(list::add);
+        }
     }
 
     @Override
@@ -251,6 +313,12 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         membersCache = Set.copyOf(input.listOrEmpty(MEMBERS_TAG, UUIDUtil.CODEC).stream().toList());
         memberNamesCache = Set.copyOf(input.listOrEmpty(MEMBER_NAMES_TAG, Codec.STRING).stream().toList());
         legacyItems = input.listOrEmpty(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC).stream().toList();
+        Arrays.fill(faceModes, FaceMode.OFF);
+        Arrays.fill(exportTabs, "");
+        input.listOrEmpty(FACES_TAG, FaceSetting.CODEC).stream().forEach(face -> {
+            faceModes[face.side().get3DDataValue()] = face.mode();
+            exportTabs[face.side().get3DDataValue()] = face.tab();
+        });
     }
 
     // Sent to clients when the chunk loads and after sendBlockUpdated

@@ -2,6 +2,7 @@ package com.manuelaraujo.quantumchest.block;
 
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
+import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.QuantumStorageData;
 import net.minecraft.core.GlobalPos;
@@ -68,6 +69,16 @@ public final class ChestNetwork {
     /** Brings every loaded chest up to the tier of the network. The rest catch up when their chunk loads. */
     public static void matchTier(MinecraftServer server, QuantumStorage storage) {
         forEachLoadedChest(server, storage, chest -> chest.matchTier(storage));
+    }
+
+    /**
+     * Hoppers and pipes may cache what each chest offers. Call this when an
+     * upgrade goes in or out, since the I/O upgrade opens or closes every face.
+     */
+    public static void invalidateFaces(MinecraftServer server, QuantumStorage storage) {
+        forEachLoadedChest(server, storage, chest -> {
+            if (chest.getLevel() instanceof ServerLevel level) Services.TRANSFER.invalidate(level, chest.getBlockPos());
+        });
     }
 
     /** Closes the chest screen of everyone looking at this storage. */

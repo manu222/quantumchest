@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "R L",
+    "I I",
+    "III"
+  ],
+  "key": {
+    "R": "minecraft:redstone",
+    "L": "minecraft:lapis_lazuli",
+    "I": "minecraft:iron_ingot"
+  },
+  "result": {
+    "id": "quantumchest:magnet_upgrade"
+  }
+}

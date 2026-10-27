@@ -38,6 +38,7 @@ public final class ModCreativeTabs {
         stacks.add(new ItemStack(ModItems.QUANTUM_ENTANGLER.get()));
         stacks.add(new ItemStack(ModItems.SUPERPOSITION_TERMINAL.get()));
         stacks.add(new ItemStack(ModItems.QUANTUM_TUNNEL.get()));
+        ModItems.UPGRADES.forEach(upgrade -> stacks.add(new ItemStack(upgrade.get())));
         return stacks;
     }
 
