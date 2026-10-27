@@ -156,6 +156,8 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             }
         }
         addSlot(new CraftResultSlot(player, craftSlots, resultSlots, RESULT_X, RESULT_Y));
+        // The chest's front comes alive while someone has it open
+        if (host != null && host.chest() != null) host.chest().startOpen(player);
     }
 
     /** Tier of the storage on screen, on either side. */
@@ -495,6 +497,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     public void removed(Player player) {
         super.removed(player);
         if (host != null && player instanceof ServerPlayer) emptyCraftGrid(player);
+        if (host != null && host.chest() != null) host.chest().stopOpen(player);
     }
 
     @Override

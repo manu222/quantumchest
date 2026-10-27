@@ -46,6 +46,17 @@ public enum ChestTier implements StringRepresentable {
         return capacity() == Long.MAX_VALUE;
     }
 
+    /** The tier's colour (silver, gold, cyan, orange, violet), as in the textures. For particles. */
+    public int glowColor() {
+        return switch (this) {
+            case BASIC -> 0xB8C0D2;
+            case REINFORCED -> 0xF0C040;
+            case ADVANCED -> 0x50E0E8;
+            case ELITE -> 0xFF6A30;
+            case QUANTUM -> 0xB070FF;
+        };
+    }
+
     public int upgradeSlots() {
         return upgradeSlots;
     }

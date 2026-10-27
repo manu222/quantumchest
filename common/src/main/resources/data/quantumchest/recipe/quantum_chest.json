@@ -2,14 +2,14 @@
   "type": "minecraft:crafting_shaped",
   "category": "misc",
   "pattern": [
-    "IRI",
-    "GCG",
-    "IRI"
+    "ODO",
+    "ICI",
+    "ODO"
   ],
   "key": {
+    "O": "minecraft:obsidian",
+    "D": "minecraft:diamond",
     "I": "minecraft:iron_ingot",
-    "R": "minecraft:redstone",
-    "G": "minecraft:glass",
     "C": "minecraft:chest"
   },
   "result": {

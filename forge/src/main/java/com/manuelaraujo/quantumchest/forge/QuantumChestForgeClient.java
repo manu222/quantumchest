@@ -1,8 +1,11 @@
 package com.manuelaraujo.quantumchest.forge;
 
+import com.manuelaraujo.quantumchest.client.ChestCollapseRenderer;
 import com.manuelaraujo.quantumchest.client.QuantumChestScreen;
+import com.manuelaraujo.quantumchest.registry.ModEntities;
 import com.manuelaraujo.quantumchest.registry.ModMenus;
 import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.eventbus.api.bus.BusGroup;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 
@@ -14,5 +17,7 @@ final class QuantumChestForgeClient {
     static void init(BusGroup modBusGroup) {
         FMLClientSetupEvent.getBus(modBusGroup).addListener(event -> event.enqueueWork(() ->
                 MenuScreens.register(ModMenus.QUANTUM_CHEST.get(), QuantumChestScreen::new)));
+        EntityRenderersEvent.RegisterRenderers.BUS.addListener(event ->
+                event.registerEntityRenderer(ModEntities.CHEST_COLLAPSE.get(), ChestCollapseRenderer::new));
     }
 }

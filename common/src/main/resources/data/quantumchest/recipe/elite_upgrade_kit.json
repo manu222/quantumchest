@@ -3,13 +3,14 @@
   "category": "misc",
   "pattern": [
     "DND",
-    "S S",
+    "SCS",
     "DND"
   ],
   "key": {
     "D": "minecraft:diamond_block",
     "N": "minecraft:netherite_ingot",
-    "S": "minecraft:shulker_shell"
+    "S": "minecraft:shulker_shell",
+    "C": "minecraft:end_crystal"
   },
   "result": {
     "id": "quantumchest:elite_upgrade_kit"

@@ -253,5 +253,8 @@
   "gui.quantumchest.smelt.furnaces_hint": "Each item takes as long as in a furnace. Higher tiers cook more at once",
   "gui.quantumchest.smelt.gauge": "The chosen fuel in the chest can smelt about %s items",
   "gui.quantumchest.smelt.gauge_pending": "Waiting to be smelted: %s",
-  "gui.quantumchest.smelt.gauge_hint": "Full when there is fuel for everything that is waiting"
+  "gui.quantumchest.smelt.gauge_hint": "Full when there is fuel for everything that is waiting",
+  "entity.quantumchest.chest_collapse": "Collapsing Chest",
+  "tooltip.quantumchest.entangler.uses": "Links left: %s of %s",
+  "tooltip.quantumchest.entangler.repair": "Repair it in an anvil with ender pearls"
 }

@@ -4,13 +4,14 @@
   "pattern": [
     "ENE",
     "BSB",
-    "E E"
+    "EIE"
   ],
   "key": {
     "E": "minecraft:echo_shard",
     "N": "minecraft:netherite_block",
     "B": "minecraft:dragon_breath",
-    "S": "minecraft:nether_star"
+    "S": "minecraft:nether_star",
+    "I": "minecraft:netherite_ingot"
   },
   "result": {
     "id": "quantumchest:quantum_upgrade_kit"

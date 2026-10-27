@@ -1,6 +1,8 @@
 package com.manuelaraujo.quantumchest.block;
 
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
+import com.manuelaraujo.quantumchest.client.ChestEffects;
+import com.manuelaraujo.quantumchest.entity.ChestCollapseEntity;
 import com.manuelaraujo.quantumchest.item.QuantumEntanglerItem;
 import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
@@ -10,12 +12,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.BlockItemStateProperties;
@@ -32,8 +35,12 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -44,12 +51,15 @@ public class QuantumChestBlock extends BaseEntityBlock {
     public static final MapCodec<QuantumChestBlock> CODEC = simpleCodec(QuantumChestBlock::new);
     public static final EnumProperty<Direction> FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<ChestTier> TIER = EnumProperty.create("tier", ChestTier.class);
+    /** Someone has the chest screen open: the front switches to its livelier animation. */
+    public static final BooleanProperty OPEN = BlockStateProperties.OPEN;
 
     public QuantumChestBlock(Properties properties) {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(FACING, Direction.NORTH)
-                .setValue(TIER, ChestTier.BASIC));
+                .setValue(TIER, ChestTier.BASIC)
+                .setValue(OPEN, false));
     }
 
     @Override
@@ -59,7 +69,7 @@ public class QuantumChestBlock extends BaseEntityBlock {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, TIER);
+        builder.add(FACING, TIER, OPEN);
     }
 
     @Override
@@ -77,10 +87,10 @@ public class QuantumChestBlock extends BaseEntityBlock {
         return new QuantumChestBlockEntity(pos, state);
     }
 
-    // Only does something on the first tick after loading, see QuantumChestBlockEntity#serverTick
+    // Server: automation, see QuantumChestBlockEntity#serverTick. Client: particles, see ChestEffects
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
-        if (level.isClientSide()) return null;
+        if (level.isClientSide()) return createTickerHelper(type, ModBlockEntities.QUANTUM_CHEST.get(), ChestEffects::clientTick);
         return createTickerHelper(type, ModBlockEntities.QUANTUM_CHEST.get(), QuantumChestBlockEntity::serverTick);
     }
 
@@ -136,22 +146,37 @@ public class QuantumChestBlock extends BaseEntityBlock {
     /**
      * Blocks broken in creative don't run their loot table, so a full chest
      * would vanish. Shulker boxes have the same problem and solve it like this.
+     * Either way the chest collapses into itself first (see ChestCollapseEntity).
      */
     @Override
     public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
-        if (!level.isClientSide() && player.preventsBlockDrops()
+        if (level instanceof ServerLevel server && player.preventsBlockDrops()
                 && level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest) {
             QuantumStorage storage = chest.existingStorage();
+            List<ItemStack> drops = new ArrayList<>();
             if (storage != null && !storage.inventory().isEmpty()) {
                 ItemStack drop = new ItemStack(this);
                 drop.applyComponents(chest.collectComponents());
                 drop.set(DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY.with(TIER, state.getValue(TIER)));
-                ItemEntity entity = new ItemEntity(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, drop);
-                entity.setDefaultPickUpDelay();
-                level.addFreshEntity(entity);
+                drops.add(drop);
             }
+            ChestCollapseEntity.spawn(server, pos, state, drops);
         }
         return super.playerWillDestroy(level, pos, state, player);
+    }
+
+    /**
+     * Survival: the same drops as the loot table, but handed to the collapse
+     * animation, which lets them go when the black hole closes.
+     */
+    @Override
+    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, BlockEntity blockEntity,
+                              ItemStack tool) {
+        player.awardStat(Stats.BLOCK_MINED.get(this));
+        player.causeFoodExhaustion(0.005f);
+        if (level instanceof ServerLevel server) {
+            ChestCollapseEntity.spawn(server, pos, state, getDrops(state, server, pos, blockEntity, player, tool));
+        }
     }
 
     // ---- opening the chest -------------------------------------------------

@@ -1,78 +1,153 @@
 {
   "variants": {
-    "facing=north,tier=basic": {
+    "facing=north,open=false,tier=basic": {
       "model": "quantumchest:block/quantum_chest_basic"
     },
-    "facing=east,tier=basic": {
+    "facing=north,open=true,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic_open"
+    },
+    "facing=east,open=false,tier=basic": {
       "model": "quantumchest:block/quantum_chest_basic",
       "y": 90
     },
-    "facing=south,tier=basic": {
+    "facing=east,open=true,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic_open",
+      "y": 90
+    },
+    "facing=south,open=false,tier=basic": {
       "model": "quantumchest:block/quantum_chest_basic",
       "y": 180
     },
-    "facing=west,tier=basic": {
+    "facing=south,open=true,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic_open",
+      "y": 180
+    },
+    "facing=west,open=false,tier=basic": {
       "model": "quantumchest:block/quantum_chest_basic",
       "y": 270
     },
-    "facing=north,tier=reinforced": {
+    "facing=west,open=true,tier=basic": {
+      "model": "quantumchest:block/quantum_chest_basic_open",
+      "y": 270
+    },
+    "facing=north,open=false,tier=reinforced": {
       "model": "quantumchest:block/quantum_chest_reinforced"
     },
-    "facing=east,tier=reinforced": {
+    "facing=north,open=true,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced_open"
+    },
+    "facing=east,open=false,tier=reinforced": {
       "model": "quantumchest:block/quantum_chest_reinforced",
       "y": 90
     },
-    "facing=south,tier=reinforced": {
+    "facing=east,open=true,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced_open",
+      "y": 90
+    },
+    "facing=south,open=false,tier=reinforced": {
       "model": "quantumchest:block/quantum_chest_reinforced",
       "y": 180
     },
-    "facing=west,tier=reinforced": {
+    "facing=south,open=true,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced_open",
+      "y": 180
+    },
+    "facing=west,open=false,tier=reinforced": {
       "model": "quantumchest:block/quantum_chest_reinforced",
       "y": 270
     },
-    "facing=north,tier=advanced": {
+    "facing=west,open=true,tier=reinforced": {
+      "model": "quantumchest:block/quantum_chest_reinforced_open",
+      "y": 270
+    },
+    "facing=north,open=false,tier=advanced": {
       "model": "quantumchest:block/quantum_chest_advanced"
     },
-    "facing=east,tier=advanced": {
+    "facing=north,open=true,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced_open"
+    },
+    "facing=east,open=false,tier=advanced": {
       "model": "quantumchest:block/quantum_chest_advanced",
       "y": 90
     },
-    "facing=south,tier=advanced": {
+    "facing=east,open=true,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced_open",
+      "y": 90
+    },
+    "facing=south,open=false,tier=advanced": {
       "model": "quantumchest:block/quantum_chest_advanced",
       "y": 180
     },
-    "facing=west,tier=advanced": {
+    "facing=south,open=true,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced_open",
+      "y": 180
+    },
+    "facing=west,open=false,tier=advanced": {
       "model": "quantumchest:block/quantum_chest_advanced",
       "y": 270
     },
-    "facing=north,tier=elite": {
+    "facing=west,open=true,tier=advanced": {
+      "model": "quantumchest:block/quantum_chest_advanced_open",
+      "y": 270
+    },
+    "facing=north,open=false,tier=elite": {
       "model": "quantumchest:block/quantum_chest_elite"
     },
-    "facing=east,tier=elite": {
+    "facing=north,open=true,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite_open"
+    },
+    "facing=east,open=false,tier=elite": {
       "model": "quantumchest:block/quantum_chest_elite",
       "y": 90
     },
-    "facing=south,tier=elite": {
+    "facing=east,open=true,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite_open",
+      "y": 90
+    },
+    "facing=south,open=false,tier=elite": {
       "model": "quantumchest:block/quantum_chest_elite",
       "y": 180
     },
-    "facing=west,tier=elite": {
+    "facing=south,open=true,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite_open",
+      "y": 180
+    },
+    "facing=west,open=false,tier=elite": {
       "model": "quantumchest:block/quantum_chest_elite",
       "y": 270
     },
-    "facing=north,tier=quantum": {
+    "facing=west,open=true,tier=elite": {
+      "model": "quantumchest:block/quantum_chest_elite_open",
+      "y": 270
+    },
+    "facing=north,open=false,tier=quantum": {
       "model": "quantumchest:block/quantum_chest_quantum"
     },
-    "facing=east,tier=quantum": {
+    "facing=north,open=true,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum_open"
+    },
+    "facing=east,open=false,tier=quantum": {
       "model": "quantumchest:block/quantum_chest_quantum",
       "y": 90
     },
-    "facing=south,tier=quantum": {
+    "facing=east,open=true,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum_open",
+      "y": 90
+    },
+    "facing=south,open=false,tier=quantum": {
       "model": "quantumchest:block/quantum_chest_quantum",
       "y": 180
     },
-    "facing=west,tier=quantum": {
+    "facing=south,open=true,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum_open",
+      "y": 180
+    },
+    "facing=west,open=false,tier=quantum": {
       "model": "quantumchest:block/quantum_chest_quantum",
+      "y": 270
+    },
+    "facing=west,open=true,tier=quantum": {
+      "model": "quantumchest:block/quantum_chest_quantum_open",
       "y": 270
     }
   }

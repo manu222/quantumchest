@@ -4,12 +4,13 @@
   "pattern": [
     " A ",
     "IGI",
-    "IEI"
+    "OEO"
   ],
   "key": {
     "A": "minecraft:amethyst_shard",
     "I": "minecraft:iron_ingot",
     "G": "minecraft:glass_pane",
+    "O": "minecraft:obsidian",
     "E": "minecraft:ender_eye"
   },
   "result": {

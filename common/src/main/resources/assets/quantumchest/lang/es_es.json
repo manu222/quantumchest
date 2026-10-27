@@ -253,5 +253,8 @@
   "gui.quantumchest.smelt.furnaces_hint": "Cada objeto tarda lo mismo que en un horno. Los niveles altos funden más a la vez",
   "gui.quantumchest.smelt.gauge": "El combustible elegido que hay en el cofre da para unos %s objetos",
   "gui.quantumchest.smelt.gauge_pending": "Esperando a fundirse: %s",
-  "gui.quantumchest.smelt.gauge_hint": "Lleno cuando hay combustible para todo lo que espera"
+  "gui.quantumchest.smelt.gauge_hint": "Lleno cuando hay combustible para todo lo que espera",
+  "entity.quantumchest.chest_collapse": "Cofre colapsando",
+  "tooltip.quantumchest.entangler.uses": "Vínculos restantes: %s de %s",
+  "tooltip.quantumchest.entangler.repair": "Se repara en un yunque con perlas de ender"
 }

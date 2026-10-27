@@ -3,13 +3,14 @@
   "category": "misc",
   "pattern": [
     "R L",
-    "I I",
+    "IDI",
     "III"
   ],
   "key": {
     "R": "minecraft:redstone",
     "L": "minecraft:lapis_lazuli",
-    "I": "minecraft:iron_ingot"
+    "I": "minecraft:iron_ingot",
+    "D": "minecraft:diamond"
   },
   "result": {
     "id": "quantumchest:magnet_upgrade"

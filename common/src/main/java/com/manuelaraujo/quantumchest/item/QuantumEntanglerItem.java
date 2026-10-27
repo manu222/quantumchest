@@ -42,9 +42,13 @@ import java.util.function.Consumer;
  *       with the rest of the network and the chest starts empty.</li>
  *   <li>Sneak and use anywhere else: forget the held chest.</li>
  * </ul>
+ * Each link uses up one of its {@link #USES} uses, like the durability of a
+ * tool. It's repaired in an anvil with ender pearls.
  */
 public class QuantumEntanglerItem extends Item {
     public static final ChestTier MIN_TIER = ChestTier.REINFORCED;
+    /** Links an entangler can make before it breaks. */
+    public static final int USES = 16;
 
     public QuantumEntanglerItem(Properties properties) {
         super(properties);
@@ -68,7 +72,7 @@ public class QuantumEntanglerItem extends Item {
         if (player.isSecondaryUseActive()) return split(level, player, chest, storage);
         StoredChest stored = stack.get(ModDataComponents.STORED_CHEST.get());
         if (stored == null) return hold(level, player, stack, chest, storage);
-        return entangle(level, player, stack, stored, chest, storage);
+        return entangle(level, player, stack, stored, chest, storage, context.getHand());
     }
 
     private InteractionResult hold(Level level, Player player, ItemStack stack, QuantumChestBlockEntity chest,
@@ -86,7 +90,7 @@ public class QuantumEntanglerItem extends Item {
     }
 
     private InteractionResult entangle(Level level, Player player, ItemStack stack, StoredChest stored,
-                                       QuantumChestBlockEntity chest, QuantumStorage second) {
+                                       QuantumChestBlockEntity chest, QuantumStorage second, InteractionHand hand) {
         MinecraftServer server = level.getServer();
         QuantumStorageData data = QuantumStorageData.get(server);
         QuantumStorage first = data.get(stored.storage());
@@ -144,6 +148,8 @@ public class QuantumEntanglerItem extends Item {
         }
         player.sendOverlayMessage(Component.translatable("message.quantumchest.entangler.linked"));
         playSound(level, chest.getBlockPos(), SoundEvents.RESPAWN_ANCHOR_CHARGE);
+        // One use per link. Nothing is spent in creative
+        stack.hurtAndBreak(1, player, hand);
         return InteractionResult.SUCCESS;
     }
 
@@ -203,6 +209,10 @@ public class QuantumEntanglerItem extends Item {
             builder.accept(Component.translatable("tooltip.quantumchest.entangler.clear").withStyle(ChatFormatting.DARK_GRAY));
         }
         builder.accept(Component.translatable("tooltip.quantumchest.entangler.split").withStyle(ChatFormatting.DARK_GRAY));
+        int left = stack.getMaxDamage() - stack.getDamageValue();
+        builder.accept(Component.translatable("tooltip.quantumchest.entangler.uses", left, stack.getMaxDamage())
+                .withStyle(left <= 2 ? ChatFormatting.RED : ChatFormatting.GRAY));
+        builder.accept(Component.translatable("tooltip.quantumchest.entangler.repair").withStyle(ChatFormatting.DARK_GRAY));
     }
 
     private static void playSound(Level level, BlockPos pos, SoundEvent sound) {

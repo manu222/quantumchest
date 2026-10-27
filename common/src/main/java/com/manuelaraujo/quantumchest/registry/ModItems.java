@@ -13,6 +13,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 
 import java.util.List;
@@ -34,7 +35,9 @@ public final class ModItems {
     public static final List<RegistryEntry<Item, TierUpgradeItem>> KITS = List.of(REINFORCED_KIT, ADVANCED_KIT, ELITE_KIT, QUANTUM_KIT);
 
     public static final RegistryEntry<Item, QuantumEntanglerItem> QUANTUM_ENTANGLER = ITEMS.registerWithKey("quantum_entangler",
-            key -> new QuantumEntanglerItem(new Item.Properties().setId(key).stacksTo(1)));
+            key -> new QuantumEntanglerItem(new Item.Properties().setId(key)
+                    .durability(QuantumEntanglerItem.USES)
+                    .repairable(Items.ENDER_PEARL)));
 
     public static final RegistryEntry<Item, SuperpositionTerminalItem> SUPERPOSITION_TERMINAL = ITEMS.registerWithKey("superposition_terminal",
             key -> new SuperpositionTerminalItem(new Item.Properties().setId(key).stacksTo(1)));

@@ -22,15 +22,17 @@ import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponentGetter;
 import net.minecraft.core.component.DataComponentMap;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.Containers;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
@@ -295,12 +297,41 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         if (!chest.checked) {
             chest.checked = true;
             if (chest.storageId != null) chest.storage();
+            // Nobody can have it open right after loading (the game may have closed mid use)
+            if (chest.viewers == 0 && state.getValue(QuantumChestBlock.OPEN)) {
+                level.setBlock(pos, state.setValue(QuantumChestBlock.OPEN, false), Block.UPDATE_CLIENTS);
+            }
         }
         if (chest.storageId == null || !(level instanceof ServerLevel serverLevel)) return;
         QuantumStorage storage = chest.existingStorage();
         if (storage != null && storage.worksIn(level.dimension())) {
             ChestAutomation.tick(serverLevel, chest, storage);
         }
+    }
+
+    // ---- open animation ----------------------------------------------------
+    // Players with the screen open. Not saved: after a reload nobody has.
+    private int viewers;
+
+    /** A player opened the chest screen here. Server side. */
+    public void startOpen(Player player) {
+        if (level == null || level.isClientSide() || player.isSpectator()) return;
+        if (viewers++ == 0) setOpen(true);
+    }
+
+    /** That player closed it again. */
+    public void stopOpen(Player player) {
+        if (level == null || level.isClientSide() || player.isSpectator() || viewers <= 0) return;
+        if (--viewers == 0) setOpen(false);
+    }
+
+    private void setOpen(boolean open) {
+        if (isRemoved() || level == null) return;
+        BlockState state = level.getBlockState(worldPosition);
+        if (!state.is(getBlockState().getBlock()) || state.getValue(QuantumChestBlock.OPEN) == open) return;
+        level.setBlock(worldPosition, state.setValue(QuantumChestBlock.OPEN, open), Block.UPDATE_CLIENTS);
+        level.playSound(null, worldPosition, open ? SoundEvents.ENDER_CHEST_OPEN : SoundEvents.ENDER_CHEST_CLOSE,
+                SoundSource.BLOCKS, 0.5f, level.getRandom().nextFloat() * 0.1f + 0.9f);
     }
 
     /** The chest is gone for good (broken, not unloaded): take it off its network and empty the reject buffer. */

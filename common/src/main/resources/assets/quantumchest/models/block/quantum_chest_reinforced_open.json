@@ -1,0 +1,9 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "front": "quantumchest:block/quantum_chest_front_open_reinforced",
+    "side": "quantumchest:block/quantum_chest_side_reinforced",
+    "top": "quantumchest:block/quantum_chest_top_reinforced",
+    "particle": "quantumchest:block/quantum_chest_side_reinforced"
+  }
+}
