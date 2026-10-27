@@ -1,7 +1,10 @@
 package com.manuelaraujo.quantumchest.menu;
 
+import com.manuelaraujo.quantumchest.automation.ChestAutomation;
 import com.manuelaraujo.quantumchest.automation.CompactOption;
 import com.manuelaraujo.quantumchest.automation.Compactor;
+import com.manuelaraujo.quantumchest.automation.SmeltOption;
+import com.manuelaraujo.quantumchest.automation.Smelter;
 import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.automation.FaceSetting;
 import com.manuelaraujo.quantumchest.automation.RejectAction;
@@ -11,6 +14,7 @@ import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import com.manuelaraujo.quantumchest.item.ChestUpgrade;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
+import com.manuelaraujo.quantumchest.network.MachinePayloads;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload.ItemAmount;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
@@ -23,6 +27,8 @@ import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.CustomTab;
 import com.manuelaraujo.quantumchest.storage.FilterRules;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
+import com.manuelaraujo.quantumchest.storage.ItemMatch;
+import com.manuelaraujo.quantumchest.storage.RefillRule;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.VoidRule;
@@ -35,8 +41,21 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ResultContainer;
+import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.inventory.TransientCraftingContainer;
+import net.minecraft.core.NonNullList;
+import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
+import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -44,6 +63,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -61,6 +81,17 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     public static final int UPGRADE_Y = 18;
     public static final int UPGRADE_SLOTS = ChestTier.QUANTUM.upgradeSlots();
     private static final int PLAYER_SLOTS = 36;
+    // Crafting upgrade: where the 3x3 and the result sit, under a grid cut down to three rows
+    public static final int CRAFT_X = 30;
+    public static final int CRAFT_Y = 74;
+    public static final int RESULT_X = 124;
+    public static final int RESULT_Y = 92;
+    public static final int CRAFT_FIRST = PLAYER_SLOTS + UPGRADE_SLOTS;
+    public static final int RESULT_INDEX = CRAFT_FIRST + 9;
+    /** Button id of "put the 3x3 back into the chest", sent with the vanilla menu button packet. */
+    public static final int BUTTON_CLEAR_CRAFTING = 0;
+    /** Shift on the result crafts at most this many times, so one click can't stall the server. */
+    private static final int MAX_SHIFT_CRAFTS = 64 * 36;
     private static final int MAX_ENTRIES_PER_PACKET = 512;
 
     // Server side: what is being viewed. Null on the client.
@@ -72,14 +103,27 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private int sentVersion = -1;
     private int sentStateVersion = -1;
     private int sentFaceVersion = -1;
+    private int sentMachineVersion = -1;
 
     // Client side: the chest contents and settings as last received
     private final Map<ItemKey, Long> clientItems = new LinkedHashMap<>();
-    private SyncStatePayload.Access clientAccess = new SyncStatePayload.Access(0, "", false, false, false, List.of());
+    private SyncStatePayload.Access clientAccess = SyncStatePayload.Access.NONE;
     private List<CustomTab> clientTabs = List.of();
     private SyncStatePayload.Faces clientFaces = SyncStatePayload.Faces.NONE;
     private SyncStatePayload.Config clientConfig = SyncStatePayload.Config.NONE;
+    private SyncStatePayload.Smelting clientSmelting = SyncStatePayload.Smelting.NONE;
     private List<CompactOption> clientCompactOptions = null;
+    private List<SmeltOption> clientSmeltOptions = null;
+
+    // Crafting upgrade: a real 3x3 and its result. The items in it are real
+    // items, so they go back to the chest when the screen closes.
+    private final TransientCraftingContainer craftSlots = new TransientCraftingContainer(this, 3, 3);
+    private final ResultContainer resultSlots = new ResultContainer();
+    // Client side: the screen shows the 3x3 only while the crafting gear is open
+    private boolean craftingVisible;
+    // Server side: while a craft moves items around, the result is worked out once at the end
+    private boolean craftingInProgress;
+    private boolean craftingBatch;
     private int clientVersion;
     private int clientStateVersion;
 
@@ -106,6 +150,12 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         for (int i = 0; i < UPGRADE_SLOTS; i++) {
             addSlot(new UpgradeSlot(upgrades, i, UPGRADE_X, UPGRADE_Y + i * 18));
         }
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                addSlot(new CraftSlot(craftSlots, col + row * 3, CRAFT_X + col * 18, CRAFT_Y + row * 18));
+            }
+        }
+        addSlot(new CraftResultSlot(player, craftSlots, resultSlots, RESULT_X, RESULT_Y));
     }
 
     /** Tier of the storage on screen, on either side. */
@@ -181,8 +231,10 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     }
 
     /**
-     * Shift click. From an upgrade slot: back to the inventory. From the
-     * inventory: upgrades go to a free upgrade slot, everything else into the chest.
+     * Shift click. On the crafting result: craft as many as fit in the
+     * inventory. From the 3x3: back into the chest. From an upgrade slot: back
+     * to the inventory. From the inventory: upgrades go to a free upgrade
+     * slot, everything else into the chest.
      */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
@@ -190,6 +242,15 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         Slot slot = slots.get(index);
         if (!slot.hasItem()) return ItemStack.EMPTY;
         ItemStack stack = slot.getItem();
+        if (index == RESULT_INDEX) {
+            craftAll(player);
+            return ItemStack.EMPTY;
+        }
+        if (index >= CRAFT_FIRST) {
+            ItemStack taken = slot.remove(stack.getCount());
+            returnToChest(player, taken);
+            return ItemStack.EMPTY;
+        }
         if (index >= PLAYER_SLOTS) {
             if (!slot.mayPickup(player)) return ItemStack.EMPTY;
             moveItemStackTo(stack, 0, PLAYER_SLOTS, true);
@@ -210,6 +271,235 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         }
         // Returning empty stops vanilla from calling us again in a loop
         return ItemStack.EMPTY;
+    }
+
+    // ---- crafting upgrade ----------------------------------------------------
+
+    /** On both sides: the crafting upgrade is in an unlocked slot. */
+    private boolean craftingInstalled() {
+        if (host == null) return hasUpgrade(ModItems.CRAFTING_UPGRADE.get());
+        QuantumStorage storage = host.storage();
+        return storage != null && storage.hasUpgrade(ModItems.CRAFTING_UPGRADE.get());
+    }
+
+    /** Client side: the screen opened or closed the crafting area. Hidden slots can't be hovered or clicked. */
+    public void setCraftingVisible(boolean visible) {
+        craftingVisible = visible;
+    }
+
+    private boolean craftSlotsActive() {
+        return host != null || craftingVisible;
+    }
+
+    public boolean craftGridEmpty() {
+        return craftSlots.isEmpty();
+    }
+
+    private class CraftSlot extends Slot {
+        CraftSlot(Container container, int index, int x, int y) {
+            super(container, index, x, y);
+        }
+
+        @Override
+        public boolean isActive() {
+            return craftSlotsActive();
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return craftingInstalled();
+        }
+    }
+
+    /**
+     * The result of the 3x3. Taking it uses one of each ingredient like a
+     * crafting table, and then puts the same item back from the chest, so the
+     * grid stays ready for the next one. What a recipe leaves behind (an
+     * empty bucket) goes into the chest.
+     */
+    private class CraftResultSlot extends ResultSlot {
+        private final Player owner;
+
+        CraftResultSlot(Player owner, TransientCraftingContainer grid, ResultContainer result, int x, int y) {
+            super(owner, grid, result, 0, x, y);
+            this.owner = owner;
+        }
+
+        @Override
+        public boolean isActive() {
+            return craftSlotsActive();
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return craftingInstalled();
+        }
+
+        @Override
+        public void onTake(Player player, ItemStack carried) {
+            checkTakeAchievements(carried);
+            if (!(player.level() instanceof ServerLevel level) || host == null || host.storage() == null) {
+                // Client: leave the grid alone. The server refills it and sends it right
+                // after, so guessing here would only make the numbers flicker
+                return;
+            }
+            QuantumStorage storage = host.storage();
+            craftingInProgress = true;
+            try {
+                useIngredients(level, storage);
+            } finally {
+                craftingInProgress = false;
+            }
+            updateCraftResult(!craftingBatch);
+        }
+
+        private void useIngredients(ServerLevel level, QuantumStorage storage) {
+            CraftingInput.Positioned positioned = craftSlots.asPositionedCraftInput();
+            CraftingInput input = positioned.input();
+            NonNullList<ItemStack> remaining = level.recipeAccess().getRecipeFor(RecipeType.CRAFTING, input, level)
+                    .map(recipe -> recipe.value().getRemainingItems(input))
+                    .orElseGet(() -> NonNullList.withSize(input.size(), ItemStack.EMPTY));
+            boolean changed = false;
+            for (int y = 0; y < input.height(); y++) {
+                for (int x = 0; x < input.width(); x++) {
+                    int slot = x + positioned.left() + (y + positioned.top()) * craftSlots.getWidth();
+                    ItemStack used = craftSlots.getItem(slot);
+                    if (used.isEmpty()) continue;
+                    ItemStack template = used.copyWithCount(1);
+                    craftSlots.removeItem(slot, 1);
+                    ItemStack leftover = remaining.get(x + y * input.width());
+                    if (!leftover.isEmpty()) {
+                        returnToChest(owner, leftover.copy());
+                        changed = true;
+                    }
+                    // Same item back from the chest, so the next craft is ready
+                    ItemStack refill = storage.inventory().extract(ItemKey.of(template), 1);
+                    if (refill.isEmpty()) continue;
+                    changed = true;
+                    ItemStack now = craftSlots.getItem(slot);
+                    if (now.isEmpty()) {
+                        craftSlots.setItem(slot, refill);
+                    } else if (ItemStack.isSameItemSameComponents(now, refill) && now.getCount() < now.getMaxStackSize()) {
+                        now.grow(1);
+                        craftSlots.setItem(slot, now);
+                    } else {
+                        storage.inventory().insert(refill, 1, Long.MAX_VALUE);
+                    }
+                }
+            }
+            if (changed) storage.markChanged();
+        }
+    }
+
+    /** Server: works out what the 3x3 makes and shows it, like a crafting table. */
+    @Override
+    public void slotsChanged(Container container) {
+        if (container == craftSlots && craftingInProgress) return;
+        super.slotsChanged(container);
+        if (container == craftSlots) updateCraftResult(true);
+    }
+
+    private void updateCraftResult(boolean send) {
+        if (host == null || !(player instanceof ServerPlayer serverPlayer) || !(serverPlayer.level() instanceof ServerLevel level)) return;
+        CraftingInput input = craftSlots.asCraftInput();
+        ItemStack result = ItemStack.EMPTY;
+        if (craftingInstalled()) {
+            Optional<RecipeHolder<CraftingRecipe>> recipe = level.recipeAccess().getRecipeFor(RecipeType.CRAFTING, input, level);
+            if (recipe.isPresent() && resultSlots.setRecipeUsed(serverPlayer, recipe.get())) {
+                ItemStack made = recipe.get().value().assemble(input);
+                if (made.isItemEnabled(level.enabledFeatures())) result = made;
+            }
+        }
+        resultSlots.setItem(0, result);
+        if (!send) return;
+        setRemoteSlot(RESULT_INDEX, result);
+        serverPlayer.connection.send(new ClientboundContainerSetSlotPacket(containerId, incrementStateId(), RESULT_INDEX, result));
+    }
+
+    /** Shift on the result: the same thing again and again, while the inventory has room and the chest has ingredients. */
+    private void craftAll(Player player) {
+        Slot result = slots.get(RESULT_INDEX);
+        if (!result.hasItem() || !result.mayPickup(player)) return;
+        Item target = result.getItem().getItem();
+        craftingBatch = true;
+        try {
+            craftRepeatedly(player, result, target);
+        } finally {
+            craftingBatch = false;
+        }
+        updateCraftResult(true);
+        broadcastChanges();
+    }
+
+    private void craftRepeatedly(Player player, Slot result, Item target) {
+        for (int done = 0; done < MAX_SHIFT_CRAFTS; done++) {
+            if (!result.hasItem() || !result.getItem().is(target)) break;
+            ItemStack made = result.getItem().copy();
+            if (!fitsInInventory(player, made)) break;
+            ItemStack taken = result.remove(made.getCount());
+            result.onTake(player, taken);
+            moveItemStackTo(taken, 0, PLAYER_SLOTS, true);
+            // Checked above, so this only happens if something changed in between
+            if (!taken.isEmpty()) {
+                player.drop(taken, false);
+                break;
+            }
+        }
+    }
+
+    private boolean fitsInInventory(Player player, ItemStack stack) {
+        int room = 0;
+        for (int i = 0; i < PLAYER_SLOTS; i++) {
+            ItemStack in = slots.get(i).getItem();
+            if (in.isEmpty()) {
+                room += stack.getMaxStackSize();
+            } else if (ItemStack.isSameItemSameComponents(in, stack)) {
+                room += Math.max(0, in.getMaxStackSize() - in.getCount());
+            }
+            if (room >= stack.getCount()) return true;
+        }
+        return false;
+    }
+
+    /** Into the chest if there is room, otherwise to the player, otherwise on the ground. */
+    private void returnToChest(Player player, ItemStack stack) {
+        if (stack.isEmpty()) return;
+        QuantumStorage storage = host != null ? host.storage() : null;
+        if (storage != null) {
+            long stored = storage.inventory().insert(stack, stack.getCount(), storage.tier().capacity());
+            stack.shrink((int) stored);
+            if (stored > 0) storage.markChanged();
+        }
+        if (!stack.isEmpty() && !player.getInventory().add(stack)) player.drop(stack, false);
+    }
+
+    private void emptyCraftGrid(Player player) {
+        for (int i = 0; i < craftSlots.getContainerSize(); i++) {
+            ItemStack stack = craftSlots.removeItemNoUpdate(i);
+            returnToChest(player, stack);
+        }
+        updateCraftResult(true);
+    }
+
+    /** The "Clear" button of the crafting area, through the vanilla menu button packet. */
+    @Override
+    public boolean clickMenuButton(Player player, int id) {
+        if (id != BUTTON_CLEAR_CRAFTING || host == null || !stillValid(player)) return false;
+        emptyCraftGrid(player);
+        broadcastChanges();
+        return true;
+    }
+
+    /** Whatever is left in the 3x3 goes back to the chest. */
+    @Override
+    public void removed(Player player) {
+        super.removed(player);
+        if (host != null && player instanceof ServerPlayer) emptyCraftGrid(player);
+    }
+
+    @Override
+    public boolean canTakeItemForPickAll(ItemStack carried, Slot target) {
+        return target.container != resultSlots && super.canTakeItemForPickAll(carried, target);
     }
 
     // ---- server: clicks on the grid ----------------------------------------
@@ -277,12 +567,16 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private void syncState(QuantumStorage storage, ServerPlayer serverPlayer) {
         QuantumChestBlockEntity chest = host.chest();
         int faceVersion = chest != null ? chest.faceVersion() : 0;
-        if (storage.stateVersion() == sentStateVersion && faceVersion == sentFaceVersion) return;
+        if (storage.stateVersion() == sentStateVersion && faceVersion == sentFaceVersion
+                && storage.machineVersion() == sentMachineVersion) return;
         sentStateVersion = storage.stateVersion();
         sentFaceVersion = faceVersion;
+        sentMachineVersion = storage.machineVersion();
         SyncStatePayload.Access access = new SyncStatePayload.Access(
                 storage.tier().ordinal(), storage.ownerName(), storage.isPublic(),
-                storage.canManage(serverPlayer), storage.canEditTabs(serverPlayer), storage.memberNames());
+                storage.canManage(serverPlayer), storage.canEditTabs(serverPlayer), storage.memberNames(),
+                storage.tier().capacity(), ChestAutomation.magnetRange(storage.tier()),
+                ChestAutomation.Speed.of(storage.tier()).perSecond(), Smelter.furnaces(storage.tier()));
         SyncStatePayload.Faces faces = chest == null ? SyncStatePayload.Faces.NONE : new SyncStatePayload.Faces(
                 storage.canManage(serverPlayer),
                 chest.getBlockState().getValue(QuantumChestBlock.FACING).get3DDataValue(),
@@ -290,8 +584,11 @@ public class QuantumChestMenu extends AbstractContainerMenu {
                 chest.rejectAction(),
                 chest.magnetOn(),
                 chest.magnetRange());
-        SyncStatePayload.Config config = new SyncStatePayload.Config(storage.filter(), storage.voidRules(), storage.compactRules());
-        Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs(), faces, config));
+        SyncStatePayload.Config config = new SyncStatePayload.Config(storage.filter(), storage.voidRules(), storage.compactRules(),
+                storage.refillRules(), storage.smeltRules(), storage.fuels());
+        SyncStatePayload.Smelting smelting = new SyncStatePayload.Smelting(storage.cookProgress(), storage.smeltCookTime(),
+                storage.smeltActive(), storage.fuelTicks());
+        Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs(), faces, config, smelting));
     }
 
     private void syncItems(QuantumInventory inventory, ServerPlayer serverPlayer) {
@@ -414,6 +711,35 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         Services.NETWORK.sendToPlayer(player, new UpgradeConfigPayloads.CompactOptions(containerId, Compactor.options(level)));
     }
 
+    // ---- server: crafting, auto-refill and smelter ------------------------------
+
+    public void handleRefillRules(List<RefillRule> rules, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null) return;
+        storage.setRefillRules(rules);
+        broadcastChanges();
+    }
+
+    public void handleSmeltRule(CompactRule rule, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null) return;
+        storage.setSmeltRule(rule);
+        broadcastChanges();
+    }
+
+    public void handleFuels(List<ItemMatch> fuels, ServerPlayer player) {
+        QuantumStorage storage = managed(player);
+        if (storage == null || !(player.level() instanceof ServerLevel level)) return;
+        // Only things that actually burn
+        storage.setFuels(fuels.stream().filter(f -> f.isValid() && Services.PLATFORM.burnTime(f.icon(), level) > 0).toList());
+        broadcastChanges();
+    }
+
+    public void sendSmeltOptions(ServerPlayer player) {
+        if (host == null || !stillValid(player) || !(player.level() instanceof ServerLevel level)) return;
+        Services.NETWORK.sendToPlayer(player, new MachinePayloads.SmeltOptions(containerId, Smelter.options(level)));
+    }
+
     /** What the chest does with turned away items that can't leave. Same rules as the faces. */
     public void handleReject(RejectAction action, ServerPlayer player) {
         if (host == null || !stillValid(player)) return;
@@ -444,6 +770,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         clientTabs = List.copyOf(payload.tabs());
         clientFaces = payload.faces();
         clientConfig = payload.config();
+        clientSmelting = payload.smelting();
         clientStateVersion++;
         clientVersion++;
     }
@@ -473,6 +800,10 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         return clientConfig;
     }
 
+    public SyncStatePayload.Smelting clientSmelting() {
+        return clientSmelting;
+    }
+
     public void applyCompactOptions(List<CompactOption> options) {
         clientCompactOptions = List.copyOf(options);
         clientStateVersion++;
@@ -481,6 +812,15 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     /** Null until the server answered. */
     public List<CompactOption> clientCompactOptions() {
         return clientCompactOptions;
+    }
+
+    public void applySmeltOptions(List<SmeltOption> options) {
+        clientSmeltOptions = List.copyOf(options);
+    }
+
+    /** Null until the server answered. */
+    public List<SmeltOption> clientSmeltOptions() {
+        return clientSmeltOptions;
     }
 
     /** True if an unlocked upgrade slot holds this item. Works on the client, where slots are synced. */

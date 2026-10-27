@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "GEG",
+    "EHE",
+    "GEG"
+  ],
+  "key": {
+    "G": "minecraft:gold_ingot",
+    "E": "minecraft:ender_pearl",
+    "H": "minecraft:hopper"
+  },
+  "result": {
+    "id": "quantumchest:refill_upgrade"
+  }
+}

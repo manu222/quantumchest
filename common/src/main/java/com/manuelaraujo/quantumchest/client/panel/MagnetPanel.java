@@ -1,6 +1,5 @@
 package com.manuelaraujo.quantumchest.client.panel;
 
-import com.manuelaraujo.quantumchest.automation.ChestAutomation;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.network.UpgradeConfigPayloads;
 import com.manuelaraujo.quantumchest.registry.ModItems;
@@ -45,7 +44,7 @@ public final class MagnetPanel extends Panel {
     }
 
     private int max() {
-        return ChestAutomation.magnetRange(menu.clientTier());
+        return Math.max(1, menu.clientAccess().magnetMax());
     }
 
     private int range() {
@@ -68,7 +67,9 @@ public final class MagnetPanel extends Panel {
 
         // Top view: the chest in the middle and the reach around it
         int cells = 2 * max() + 1;
-        int cell = Math.max(2, MAP_SIZE / cells);
+        // A config can raise the reach to 16, so small cells drop the gap between them
+        int cell = Math.max(1, MAP_SIZE / cells);
+        int gap = cell >= 3 ? 1 : 0;
         int size = cell * cells;
         int ox = MAP_X + (MAP_SIZE - size) / 2;
         int oy = MAP_Y + (MAP_SIZE - size) / 2;
@@ -79,7 +80,7 @@ public final class MagnetPanel extends Panel {
                 int dy = Math.abs(gy - max());
                 boolean inside = on() && Math.max(dx, dy) <= range();
                 int color = dx == 0 && dy == 0 ? 0xFF9B5FE0 : inside ? 0xFF3C6E3C : 0xFF363636;
-                graphics.fill(ox + gx * cell, oy + gy * cell, ox + gx * cell + cell - 1, oy + gy * cell + cell - 1, color);
+                graphics.fill(ox + gx * cell, oy + gy * cell, ox + gx * cell + cell - gap, oy + gy * cell + cell - gap, color);
             }
         }
         String[] help = {"gui.quantumchest.magnet.help1", "gui.quantumchest.magnet.help2", "gui.quantumchest.magnet.help3",

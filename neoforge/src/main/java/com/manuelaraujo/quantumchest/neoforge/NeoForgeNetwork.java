@@ -3,6 +3,7 @@ package com.manuelaraujo.quantumchest.neoforge;
 import com.manuelaraujo.quantumchest.client.ClientHandlers;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.ClickPayload;
+import com.manuelaraujo.quantumchest.network.MachinePayloads;
 import com.manuelaraujo.quantumchest.network.QuantumNetwork;
 import com.manuelaraujo.quantumchest.network.SetFacePayload;
 import com.manuelaraujo.quantumchest.network.SetRejectPayload;
@@ -18,7 +19,7 @@ final class NeoForgeNetwork {
     }
 
     static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("5")
+        event.registrar("6")
                 // Client handlers are only ever called on the client, so the
                 // dedicated server never loads ClientHandlers
                 .playToClient(SyncItemsPayload.TYPE, SyncItemsPayload.STREAM_CODEC,
@@ -27,6 +28,8 @@ final class NeoForgeNetwork {
                         (payload, context) -> ClientHandlers.onSyncState(payload))
                 .playToClient(UpgradeConfigPayloads.CompactOptions.TYPE, UpgradeConfigPayloads.CompactOptions.STREAM_CODEC,
                         (payload, context) -> ClientHandlers.onCompactOptions(payload))
+                .playToClient(MachinePayloads.SmeltOptions.TYPE, MachinePayloads.SmeltOptions.STREAM_CODEC,
+                        (payload, context) -> ClientHandlers.onSmeltOptions(payload))
                 .playToServer(ClickPayload.TYPE, ClickPayload.STREAM_CODEC,
                         (payload, context) -> QuantumNetwork.onClick(payload, (ServerPlayer) context.player()))
                 .playToServer(ChestSettingsPayload.TYPE, ChestSettingsPayload.STREAM_CODEC,
@@ -46,6 +49,14 @@ final class NeoForgeNetwork {
                 .playToServer(UpgradeConfigPayloads.SetMagnet.TYPE, UpgradeConfigPayloads.SetMagnet.STREAM_CODEC,
                         (payload, context) -> QuantumNetwork.onSetMagnet(payload, (ServerPlayer) context.player()))
                 .playToServer(UpgradeConfigPayloads.RequestCompactOptions.TYPE, UpgradeConfigPayloads.RequestCompactOptions.STREAM_CODEC,
-                        (payload, context) -> QuantumNetwork.onRequestCompactOptions(payload, (ServerPlayer) context.player()));
+                        (payload, context) -> QuantumNetwork.onRequestCompactOptions(payload, (ServerPlayer) context.player()))
+                .playToServer(MachinePayloads.SetRefillRules.TYPE, MachinePayloads.SetRefillRules.STREAM_CODEC,
+                        (payload, context) -> QuantumNetwork.onSetRefillRules(payload, (ServerPlayer) context.player()))
+                .playToServer(MachinePayloads.SetSmeltRule.TYPE, MachinePayloads.SetSmeltRule.STREAM_CODEC,
+                        (payload, context) -> QuantumNetwork.onSetSmeltRule(payload, (ServerPlayer) context.player()))
+                .playToServer(MachinePayloads.SetFuels.TYPE, MachinePayloads.SetFuels.STREAM_CODEC,
+                        (payload, context) -> QuantumNetwork.onSetFuels(payload, (ServerPlayer) context.player()))
+                .playToServer(MachinePayloads.RequestSmeltOptions.TYPE, MachinePayloads.RequestSmeltOptions.STREAM_CODEC,
+                        (payload, context) -> QuantumNetwork.onRequestSmeltOptions(payload, (ServerPlayer) context.player()));
     }
 }

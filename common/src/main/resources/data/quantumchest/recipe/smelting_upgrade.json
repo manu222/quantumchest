@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "IFI",
+    "FBF",
+    "IFI"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "F": "minecraft:furnace",
+    "B": "minecraft:blast_furnace"
+  },
+  "result": {
+    "id": "quantumchest:smelting_upgrade"
+  }
+}

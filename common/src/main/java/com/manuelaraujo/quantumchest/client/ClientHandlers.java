@@ -1,6 +1,7 @@
 package com.manuelaraujo.quantumchest.client;
 
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
+import com.manuelaraujo.quantumchest.network.MachinePayloads;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncStatePayload;
 import com.manuelaraujo.quantumchest.network.UpgradeConfigPayloads;
@@ -25,6 +26,17 @@ public final class ClientHandlers {
                 && menu.containerId == payload.containerId()) {
             menu.applyCompactOptions(payload.options());
         }
+    }
+
+    private static QuantumChestMenu menu(int containerId) {
+        var player = Minecraft.getInstance().player;
+        if (player != null && player.containerMenu instanceof QuantumChestMenu menu && menu.containerId == containerId) return menu;
+        return null;
+    }
+
+    public static void onSmeltOptions(MachinePayloads.SmeltOptions payload) {
+        QuantumChestMenu menu = menu(payload.containerId());
+        if (menu != null) menu.applySmeltOptions(payload.options());
     }
 
     public static void onSyncState(SyncStatePayload payload) {

@@ -184,6 +184,9 @@ public class QuantumEntanglerItem extends Item {
         return InteractionResult.SUCCESS;
     }
 
+    // Mojang marks this deprecated in favour of tooltip components, but still calls it
+    // and it's the only way to show text that depends on the stack's own data
+    @SuppressWarnings("deprecation")
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay display,
                                 Consumer<Component> builder, TooltipFlag flag) {

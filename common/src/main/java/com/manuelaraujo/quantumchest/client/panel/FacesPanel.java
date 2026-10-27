@@ -1,6 +1,5 @@
 package com.manuelaraujo.quantumchest.client.panel;
 
-import com.manuelaraujo.quantumchest.automation.ChestAutomation;
 import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.automation.FaceSetting;
 import com.manuelaraujo.quantumchest.automation.RejectAction;
@@ -105,7 +104,7 @@ public final class FacesPanel extends Panel {
             }
         }
         footerText(graphics, Component.translatable("gui.quantumchest.faces.speed",
-                ChestAutomation.Speed.of(menu.clientTier()).perSecond()), true);
+                menu.clientAccess().ioPerSecond()), true);
     }
 
     @Override

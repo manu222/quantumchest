@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.block;
 
+import com.manuelaraujo.quantumchest.QuantumConfig;
 import com.mojang.serialization.Codec;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -31,12 +32,18 @@ public enum ChestTier implements StringRepresentable {
         this.upgradeSlots = upgradeSlots;
     }
 
+    /** From the server config. On a client connected to a server, use the value the chest screen received. */
     public long capacity() {
+        return QuantumConfig.capacity(this);
+    }
+
+    /** The capacity this tier has unless the config changes it. */
+    public long defaultCapacity() {
         return capacity;
     }
 
     public boolean isUnlimited() {
-        return capacity == Long.MAX_VALUE;
+        return capacity() == Long.MAX_VALUE;
     }
 
     public int upgradeSlots() {

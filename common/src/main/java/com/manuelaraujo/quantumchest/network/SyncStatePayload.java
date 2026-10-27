@@ -6,6 +6,9 @@ import com.manuelaraujo.quantumchest.automation.RejectAction;
 import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.CustomTab;
 import com.manuelaraujo.quantumchest.storage.FilterRules;
+import com.manuelaraujo.quantumchest.storage.ItemMatch;
+import com.manuelaraujo.quantumchest.storage.QuantumStorage;
+import com.manuelaraujo.quantumchest.storage.RefillRule;
 import com.manuelaraujo.quantumchest.storage.VoidRule;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -19,7 +22,7 @@ import java.util.List;
  * open and whenever the tier, owner, access, members or tabs change. The two
  * "can" flags are worked out on the server for this particular player.
  */
-public record SyncStatePayload(int containerId, Access access, List<CustomTab> tabs, Faces faces, Config config)
+public record SyncStatePayload(int containerId, Access access, List<CustomTab> tabs, Faces faces, Config config, Smelting smelting)
         implements CustomPacketPayload {
 
     public static final Type<SyncStatePayload> TYPE = new Type<>(QuantumChest.id("sync_state"));
@@ -30,7 +33,23 @@ public record SyncStatePayload(int containerId, Access access, List<CustomTab> t
             CustomTab.STREAM_CODEC.apply(ByteBufCodecs.list()), SyncStatePayload::tabs,
             Faces.STREAM_CODEC, SyncStatePayload::faces,
             Config.STREAM_CODEC, SyncStatePayload::config,
+            Smelting.STREAM_CODEC, SyncStatePayload::smelting,
             SyncStatePayload::new);
+
+    /**
+     * How the smelter is doing: ticks the current batch has cooked, how long
+     * it needs, how many furnaces are on and the heat left from the last fuel.
+     */
+    public record Smelting(int progress, int cookTime, int active, long heat) {
+        public static final Smelting NONE = new Smelting(0, 0, 0, 0);
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, Smelting> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.VAR_INT, Smelting::progress,
+                ByteBufCodecs.VAR_INT, Smelting::cookTime,
+                ByteBufCodecs.VAR_INT, Smelting::active,
+                ByteBufCodecs.VAR_LONG, Smelting::heat,
+                Smelting::new);
+    }
 
     @Override
     public Type<SyncStatePayload> type() {
@@ -59,19 +78,30 @@ public record SyncStatePayload(int containerId, Access access, List<CustomTab> t
                 Faces::new);
     }
 
-    /** The filter and the settings of the destroyer and the compactor, shared by the whole network. */
-    public record Config(FilterRules filter, List<VoidRule> destroy, List<CompactRule> compact) {
-        public static final Config NONE = new Config(FilterRules.NONE, List.of(), List.of());
+    /** The filter and the settings of the upgrades that belong to the whole network. */
+    public record Config(FilterRules filter, List<VoidRule> destroy, List<CompactRule> compact,
+                         List<RefillRule> refill, List<CompactRule> smelt, List<ItemMatch> fuels) {
+        public static final Config NONE = new Config(FilterRules.NONE, List.of(), List.of(), List.of(), List.of(), List.of());
 
         public static final StreamCodec<RegistryFriendlyByteBuf, Config> STREAM_CODEC = StreamCodec.composite(
                 FilterRules.STREAM_CODEC, Config::filter,
                 VoidRule.STREAM_CODEC.apply(ByteBufCodecs.list(VoidRule.MAX_RULES)), Config::destroy,
                 CompactRule.STREAM_CODEC.apply(ByteBufCodecs.list(8192)), Config::compact,
+                RefillRule.STREAM_CODEC.apply(ByteBufCodecs.list(RefillRule.MAX_RULES)), Config::refill,
+                CompactRule.STREAM_CODEC.apply(ByteBufCodecs.list(8192)), Config::smelt,
+                ItemMatch.STREAM_CODEC.apply(ByteBufCodecs.list(QuantumStorage.MAX_FUELS)), Config::fuels,
                 Config::new);
     }
 
+    /**
+     * Who may do what, plus the numbers of this tier as the server's config
+     * has them (capacity, magnet reach and machine speeds), so the screen
+     * never shows the defaults of a modpack that changed them.
+     */
     public record Access(int tier, String owner, boolean isPublic, boolean canManage, boolean canEditTabs,
-                         List<String> members) {
+                         List<String> members, long capacity, int magnetMax, int ioPerSecond, int smeltFurnaces) {
+        public static final Access NONE = new Access(0, "", false, false, false, List.of(), 0, 3, 16, 1);
+
         public static final StreamCodec<RegistryFriendlyByteBuf, Access> STREAM_CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, Access::tier,
                 ByteBufCodecs.STRING_UTF8, Access::owner,
@@ -79,6 +109,14 @@ public record SyncStatePayload(int containerId, Access access, List<CustomTab> t
                 ByteBufCodecs.BOOL, Access::canManage,
                 ByteBufCodecs.BOOL, Access::canEditTabs,
                 ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), Access::members,
+                ByteBufCodecs.VAR_LONG, Access::capacity,
+                ByteBufCodecs.VAR_INT, Access::magnetMax,
+                ByteBufCodecs.VAR_INT, Access::ioPerSecond,
+                ByteBufCodecs.VAR_INT, Access::smeltFurnaces,
                 Access::new);
+
+        public boolean unlimited() {
+            return capacity == Long.MAX_VALUE;
+        }
     }
 }

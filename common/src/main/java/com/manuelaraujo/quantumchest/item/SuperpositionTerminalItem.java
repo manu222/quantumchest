@@ -1,5 +1,7 @@
 package com.manuelaraujo.quantumchest.item;
 
+import com.manuelaraujo.quantumchest.QuantumConfig;
+import com.manuelaraujo.quantumchest.automation.Refiller;
 import com.manuelaraujo.quantumchest.block.ChestNetwork;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
@@ -10,12 +12,15 @@ import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.QuantumStorageData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -111,7 +116,7 @@ public class SuperpositionTerminalItem extends Item {
         };
         if (problem != null) {
             player.sendOverlayMessage(Component.translatable(problem,
-                    problem.endsWith("min_tier") ? Component.translatable(MIN_TIER.translationKey()) : ChestNetwork.ADVANCED_RANGE));
+                    problem.endsWith("min_tier") ? Component.translatable(MIN_TIER.translationKey()) : QuantumConfig.terminalRange()));
             return InteractionResult.FAIL;
         }
         if (player instanceof ServerPlayer serverPlayer) {
@@ -122,6 +127,16 @@ public class SuperpositionTerminalItem extends Item {
             level.playSound(null, player.blockPosition(), SoundEvents.AMETHYST_BLOCK_RESONATE, SoundSource.PLAYERS, 0.6f, 1.6f);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    /** Carried around: keeps the player's items topped up or put away if the linked chest has the auto-refill upgrade. */
+    @Override
+    public void inventoryTick(ItemStack stack, ServerLevel level, Entity owner, EquipmentSlot slot) {
+        if (!(owner instanceof ServerPlayer player) || (level.getGameTime() + player.getId()) % Refiller.INTERVAL != 0) return;
+        UUID linked = stack.get(ModDataComponents.STORAGE_ID.get());
+        if (linked == null) return;
+        QuantumStorage storage = QuantumStorageData.get(level.getServer()).get(linked);
+        if (storage != null) Refiller.tick(player, storage);
     }
 
     /** Whether the player still has a terminal linked to this storage, for closing the screen when it's dropped. */
@@ -136,6 +151,9 @@ public class SuperpositionTerminalItem extends Item {
         return false;
     }
 
+    // Mojang marks this deprecated in favour of tooltip components, but still calls it
+    // and it's the only way to show text that depends on the stack's own data
+    @SuppressWarnings("deprecation")
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay display,
                                 Consumer<Component> builder, TooltipFlag flag) {

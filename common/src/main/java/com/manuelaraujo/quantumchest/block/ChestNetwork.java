@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.block;
 
+import com.manuelaraujo.quantumchest.QuantumConfig;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.platform.Services;
@@ -21,9 +22,6 @@ import java.util.function.Consumer;
  * terminal knows how far away the closest one is. Server side only.
  */
 public final class ChestNetwork {
-    /** How far a terminal reaches with an Advanced chest. Elite and up reach the whole dimension. */
-    public static final int ADVANCED_RANGE = 64;
-
     private ChestNetwork() {
     }
 
@@ -112,6 +110,8 @@ public final class ChestNetwork {
         if (!placed) return Reach.NOT_PLACED;
         if (!sameDimension) return storage.hasTunnel() ? Reach.OK : Reach.OTHER_DIMENSION;
         if (storage.tier().atLeast(ChestTier.ELITE)) return Reach.OK;
-        return closest <= (double) ADVANCED_RANGE * ADVANCED_RANGE ? Reach.OK : Reach.TOO_FAR;
+        // Advanced chests: as far as the config says. Elite and up reach the whole dimension.
+        double range = QuantumConfig.terminalRange();
+        return closest <= range * range ? Reach.OK : Reach.TOO_FAR;
     }
 }

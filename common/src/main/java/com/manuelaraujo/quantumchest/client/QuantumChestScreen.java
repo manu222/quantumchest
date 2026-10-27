@@ -7,6 +7,8 @@ import com.manuelaraujo.quantumchest.client.panel.FacesPanel;
 import com.manuelaraujo.quantumchest.client.panel.FilterPanel;
 import com.manuelaraujo.quantumchest.client.panel.MagnetPanel;
 import com.manuelaraujo.quantumchest.client.panel.Panel;
+import com.manuelaraujo.quantumchest.client.panel.RefillPanel;
+import com.manuelaraujo.quantumchest.client.panel.SmeltPanel;
 import com.manuelaraujo.quantumchest.client.panel.VoidPanel;
 import com.manuelaraujo.quantumchest.menu.ClickAction;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
@@ -23,6 +25,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.inventory.tooltip.DefaultTooltipPositioner;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
@@ -45,6 +48,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongConsumer;
@@ -56,7 +60,8 @@ import java.util.function.Predicate;
  * slots: it draws whatever {@link QuantumChestMenu#clientItems()} holds and
  * sends clicks to the server as packets.
  *
- * Several modes share the panel: normal use, editing a custom tab (the grid
+ * Several modes share the panel: normal use, crafting (the grid shrinks to
+ * three rows and a 3x3 appears below), editing a custom tab (the grid
  * becomes a picker), the member list of a private chest, and the settings
  * panels of the filter and the upgrades (see {@link Panel}). Each upgrade
  * that has settings gets a gear button next to its slot.
@@ -68,11 +73,12 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     private static final int COLS = 9;
     private static final int ROWS = 6;
+    // With the crafting area open the grid keeps its first three rows
+    private static final int CRAFT_ROWS = 3;
     private static final int GRID_X = 8;
     private static final int GRID_Y = 18;
     private static final int SCROLL_X = 175;
     private static final int SCROLL_Y = 18;
-    private static final int SCROLL_H = 108;
     private static final int SIDE_X = -20;
     private static final int SORT_Y = 4;
     private static final int ORDER_Y = 24;
@@ -89,7 +95,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private static final int GEAR_X = QuantumChestMenu.UPGRADE_X + 19;
     private static final int GEAR_SIZE = 11;
 
-    private enum Mode { NORMAL, EDIT_TAB, MEMBERS, PANEL }
+    private enum Mode { NORMAL, CRAFT, EDIT_TAB, MEMBERS, PANEL }
 
     // Remembered while the game is running, so every chest opens the same way
     private static SortMode sortMode = SortMode.AMOUNT;
@@ -168,18 +174,29 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     private void setMode(Mode newMode) {
         if (mode == Mode.PANEL && newMode != Mode.PANEL && panel != null) {
-            // Back from a panel with its own search: give the item search back
-            if (panel.searchHint() != null) searchBox.setValue(searchBeforePanel);
+            // Back from a panel: give the item search back
+            searchBox.setValue(searchBeforePanel);
             panel = null;
         }
+        if (mode == Mode.CRAFT && newMode != Mode.CRAFT && !menu.craftGridEmpty()) {
+            // Leaving the crafting area: what was on the 3x3 goes back into the chest
+            minecraft.gameMode.handleInventoryButtonClick(menu.containerId, QuantumChestMenu.BUTTON_CLEAR_CRAFTING);
+        }
         mode = newMode;
+        menu.setCraftingVisible(mode == Mode.CRAFT);
         cancelNumber();
         nameBox.setVisible(mode == Mode.EDIT_TAB);
         tagsBox.setVisible(mode == Mode.EDIT_TAB);
         memberBox.setVisible(mode == Mode.MEMBERS);
+        applySearchBox();
+        listDirty = true;
+    }
+
+    /** The search box belongs to the item grid, or to a panel with a list (some panels only have one on one of their pages). */
+    private void applySearchBox() {
         boolean panelSearch = mode == Mode.PANEL && panel != null && panel.searchHint() != null;
-        searchBox.setVisible(mode == Mode.NORMAL || mode == Mode.EDIT_TAB || panelSearch);
-        searchBox.setWidth(panelSearch ? 116 : 160);
+        searchBox.setVisible(gridMode() || mode == Mode.EDIT_TAB || panelSearch);
+        searchBox.setWidth(panelSearch ? panel.searchWidth() : 160);
         searchBox.setHint(Component.translatable(panelSearch ? panel.searchHint() : "gui.quantumchest.search")
                 .withStyle(ChatFormatting.DARK_GRAY));
         for (EditBox box : boxes()) {
@@ -188,7 +205,6 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
                 setFocused(null);
             }
         }
-        listDirty = true;
     }
 
     private void openPanel(Panel newPanel) {
@@ -198,11 +214,29 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         }
         if (mode == Mode.PANEL) setMode(Mode.NORMAL);
         panel = newPanel;
-        if (panel.searchHint() != null) {
-            searchBeforePanel = searchBox.getValue();
-            searchBox.setValue("");
-        }
+        searchBeforePanel = searchBox.getValue();
+        searchBox.setValue("");
         setMode(Mode.PANEL);
+    }
+
+    /** Normal use, with or without the crafting area: the grid works the same in both. */
+    private boolean gridMode() {
+        return mode == Mode.NORMAL || mode == Mode.CRAFT;
+    }
+
+    /** Rows of the item grid on screen. */
+    private int rows() {
+        return mode == Mode.CRAFT ? CRAFT_ROWS : ROWS;
+    }
+
+    private int scrollHeight() {
+        return rows() * 18;
+    }
+
+    /** The crafting gear opens a 3x3 under the grid instead of a settings panel. */
+    private void toggleCrafting() {
+        setMode(mode == Mode.CRAFT ? Mode.NORMAL : Mode.CRAFT);
+        scroll = 0;
     }
 
     /** The modes that replace the grid. */
@@ -270,8 +304,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         super.containerTick();
         ticks++;
         if (mode == Mode.PANEL && (panel == null || !panel.available())) setMode(Mode.NORMAL);
+        if (mode == Mode.CRAFT && !menu.hasUpgrade(ModItems.CRAFTING_UPGRADE.get())) setMode(Mode.NORMAL);
         if (mode == Mode.PANEL) {
-            if (panel.searchHint() != null) panel.search(searchBox.getValue());
+            boolean wantsSearch = panel.searchHint() != null;
+            if (wantsSearch != searchBox.isVisible() || wantsSearch && searchBox.getWidth() != panel.searchWidth()) {
+                applySearchBox();
+            }
+            if (wantsSearch) panel.search(searchBox.getValue());
             panel.tick();
             return;
         }
@@ -312,7 +351,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     private int hiddenRows() {
         int rows = (visible.size() + COLS - 1) / COLS;
-        return Math.max(0, rows - ROWS);
+        return Math.max(0, rows - rows());
     }
 
     private int firstRow() {
@@ -323,13 +362,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private int indexAt(double mouseX, double mouseY) {
         int col = Mth.floor((mouseX - leftPos - GRID_X + 1) / 18);
         int row = Mth.floor((mouseY - topPos - GRID_Y + 1) / 18);
-        if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return -1;
+        if (col < 0 || col >= COLS || row < 0 || row >= rows()) return -1;
         int index = (firstRow() + row) * COLS + col;
         return index < visible.size() ? index : -1;
     }
 
     private boolean insideGrid(double mouseX, double mouseY) {
-        return isHovering(GRID_X - 1, GRID_Y - 1, COLS * 18, ROWS * 18, mouseX, mouseY);
+        return isHovering(GRID_X - 1, GRID_Y - 1, COLS * 18, rows() * 18, mouseX, mouseY);
     }
 
     // ---- tab row layout ----------------------------------------------------
@@ -367,6 +406,8 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         if (upgrade.is(ModItems.VOID_UPGRADE.get())) return s -> new VoidPanel(s.menu, s);
         if (upgrade.is(ModItems.COMPACTOR_UPGRADE.get())) return s -> new CompactPanel(s.menu, s);
         if (upgrade.is(ModItems.IO_UPGRADE.get())) return s -> new FacesPanel(s.menu, s);
+        if (upgrade.is(ModItems.REFILL_UPGRADE.get())) return s -> new RefillPanel(s.menu, s);
+        if (upgrade.is(ModItems.SMELTING_UPGRADE.get())) return s -> new SmeltPanel(s.menu, s);
         return null;
     }
 
@@ -383,8 +424,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         return menu.slots.get(36 + slot).getItem();
     }
 
+    private static boolean isCrafting(ItemStack upgrade) {
+        return upgrade.is(ModItems.CRAFTING_UPGRADE.get());
+    }
+
     private boolean hasGear(int slot) {
-        return slot < menu.activeUpgradeSlots() && panelFor(upgradeIn(slot)) != null;
+        ItemStack upgrade = upgradeIn(slot);
+        return slot < menu.activeUpgradeSlots() && (isCrafting(upgrade) || panelFor(upgrade) != null);
     }
 
     private int gearY(int slot) {
@@ -404,7 +450,8 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             if (!hasGear(i)) continue;
             ItemStack upgrade = upgradeIn(i);
             boolean enabled = gearEnabled(upgrade);
-            boolean open = mode == Mode.PANEL && panel != null && ItemStack.isSameItem(panel.upgrade(), upgrade);
+            boolean open = mode == Mode.PANEL && panel != null && ItemStack.isSameItem(panel.upgrade(), upgrade)
+                    || mode == Mode.CRAFT && isCrafting(upgrade);
             int x = leftPos + GEAR_X;
             int y = topPos + gearY(i);
             boolean over = isHovering(GEAR_X, gearY(i), GEAR_SIZE, GEAR_SIZE, mouseX, mouseY);
@@ -428,7 +475,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
         if (mode != Mode.PANEL) {
             boolean canScroll = hiddenRows() > 0 && !panelMode();
-            int knobY = topPos + SCROLL_Y + (int) ((SCROLL_H - 15) * scroll);
+            int knobY = topPos + SCROLL_Y + (int) ((scrollHeight() - 15) * scroll);
             graphics.blitSprite(RenderPipelines.GUI_TEXTURED, canScroll ? SCROLLER : SCROLLER_DISABLED,
                     leftPos + SCROLL_X, knobY, 12, 15);
         }
@@ -447,6 +494,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         super.extractBackground(graphics, mouseX, mouseY, partialTick);
         graphics.blit(RenderPipelines.GUI_TEXTURED, TEXTURE, leftPos, topPos, 0, 0, imageWidth, imageHeight, 256, 256);
         drawUpgradeColumn(graphics);
+        if (mode == Mode.CRAFT) drawCraftingArea(graphics);
         // Dark fields behind the text boxes that only exist in some modes
         if (mode == Mode.EDIT_TAB) {
             textField(graphics, 7, INFO_Y - 2, 82);
@@ -477,6 +525,61 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         }
     }
 
+    private static final int CLEAR_CRAFT_X = 150;
+    private static final int CLEAR_CRAFT_Y = 75;
+    private static final int CLEAR_CRAFT_W = 38;
+    private static final int CLEAR_CRAFT_H = 12;
+
+    /**
+     * Covers the lower half of the grid with a crafting table: the 3x3 on the
+     * left, an arrow and the result on the right. The slots themselves are
+     * real menu slots, vanilla draws their items.
+     */
+    private void drawCraftingArea(GuiGraphicsExtractor graphics) {
+        int left = leftPos + 7;
+        int top = topPos + GRID_Y + CRAFT_ROWS * 18;
+        graphics.fill(left, top, leftPos + 189, topPos + INFO_Y - 2, 0xFFC6C6C6);
+        // The scrollbar track ends with the shorter grid
+        graphics.fill(leftPos + SCROLL_X - 1, top - 1, leftPos + SCROLL_X + 13, top, 0xFFFFFFFF);
+        graphics.fill(left, top, leftPos + 189, top + 1, 0xFF8B8B8B);
+        for (int i = 0; i < 9; i++) {
+            slotFrame(graphics, QuantumChestMenu.CRAFT_X + (i % 3) * 18, QuantumChestMenu.CRAFT_Y + (i / 3) * 18, 18);
+        }
+        // Arrow
+        int ax = leftPos + 92;
+        int ay = topPos + QuantumChestMenu.RESULT_Y + 6;
+        graphics.fill(ax, ay, ax + 16, ay + 4, 0xFF8B8B8B);
+        for (int i = 0; i < 6; i++) graphics.fill(ax + 16 + i, ay - 4 + i, ax + 17 + i, ay + 8 - i, 0xFF8B8B8B);
+        slotFrame(graphics, QuantumChestMenu.RESULT_X - 4, QuantumChestMenu.RESULT_Y - 4, 26);
+    }
+
+    /** A sunken square like the ones in the texture, {@code size} pixels wide, its item drawn 1 or 5 pixels in. */
+    private void slotFrame(GuiGraphicsExtractor graphics, int x, int y, int size) {
+        int ax = leftPos + x - (size == 18 ? 1 : 0);
+        int ay = topPos + y - (size == 18 ? 1 : 0);
+        graphics.fill(ax, ay, ax + size, ay + size, 0xFF373737);
+        graphics.fill(ax + 1, ay + 1, ax + size, ay + size, 0xFFFFFFFF);
+        graphics.fill(ax + 1, ay + 1, ax + size - 1, ay + size - 1, 0xFF8B8B8B);
+    }
+
+    private boolean onClearCraft(double mouseX, double mouseY) {
+        return mode == Mode.CRAFT && isHovering(CLEAR_CRAFT_X, CLEAR_CRAFT_Y, CLEAR_CRAFT_W, CLEAR_CRAFT_H, mouseX, mouseY);
+    }
+
+    /** Labels of the crafting area: the Clear button and a reminder of what Shift does. */
+    private void drawCraftingLabels(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        boolean enabled = !menu.craftGridEmpty();
+        boolean over = enabled && onClearCraft(mouseX, mouseY);
+        int x = CLEAR_CRAFT_X;
+        int y = CLEAR_CRAFT_Y;
+        graphics.fill(x, y, x + CLEAR_CRAFT_W, y + CLEAR_CRAFT_H, over ? 0xFFFFFFFF : 0xFF000000);
+        graphics.fill(x + 1, y + 1, x + CLEAR_CRAFT_W - 1, y + CLEAR_CRAFT_H - 1, enabled ? 0xFF6F6F6F : 0xFF4A4A4A);
+        String label = font.plainSubstrByWidth(Component.translatable("gui.quantumchest.panel.clear").getString(), CLEAR_CRAFT_W - 4);
+        graphics.text(font, label, x + CLEAR_CRAFT_W / 2 - font.width(label) / 2, y + 2, enabled ? 0xFFFFFFFF : 0xFFA0A0A0, false);
+        String hint = Component.translatable("gui.quantumchest.craft.shift_short").getString();
+        graphics.text(font, font.plainSubstrByWidth(hint, 188 - 118), 118, QuantumChestMenu.RESULT_Y + 24, 0xFF404040, false);
+    }
+
     private void textField(GuiGraphicsExtractor graphics, int x, int y, int width) {
         graphics.fill(leftPos + x, topPos + y, leftPos + x + width, topPos + y + 12, 0xFF000000);
     }
@@ -496,9 +599,9 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             return;
         }
         // The search box takes the top row, so the chest name goes on the row above the inventory
-        if (mode == Mode.NORMAL) {
+        if (gridMode()) {
             graphics.text(font, title.getString(), 8, INFO_Y, 0xFF404040, false);
-            String info = compact(menu.clientTotal()) + " / " + capacityText(menu.clientTier(), true);
+            String info = compact(menu.clientTotal()) + " / " + capacityText(true);
             graphics.text(font, info, imageWidth - 8 - font.width(info), INFO_Y, 0xFF404040, false);
         } else if (mode == Mode.MEMBERS) {
             graphics.text(font, Component.translatable("gui.quantumchest.members", access().members().size()).getString(),
@@ -507,8 +610,9 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             return;
         }
 
+        if (mode == Mode.CRAFT) drawCraftingLabels(graphics, mouseX, mouseY);
         int start = firstRow() * COLS;
-        for (int i = 0; i < ROWS * COLS; i++) {
+        for (int i = 0; i < rows() * COLS; i++) {
             int index = start + i;
             int x = GRID_X + (i % COLS) * 18;
             int y = GRID_Y + (i / COLS) * 18;
@@ -573,7 +677,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             if (index >= tabs.size()) break;
             ChestTabs.Tab tab = tabs.get(index);
             int x = leftPos + firstTabX() + slot * TAB_W;
-            boolean selected = tab.key().equals(selectedTab) && mode == Mode.NORMAL
+            boolean selected = tab.key().equals(selectedTab) && gridMode()
                     || mode == Mode.EDIT_TAB && tab.customIndex() == editIndex && editIndex >= 0;
             graphics.blit(RenderPipelines.GUI_TEXTURED, TEXTURE, x, y, selected ? 22 : 0, 224, 22, 22, 256, 256);
             if (tab.key().equals(ChestTabs.ADD)) {
@@ -650,6 +754,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     private void drawTooltips(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         List<Component> lines = null;
+        boolean replaceVanilla = false;
         int tab = tabAt(mouseX, mouseY);
         int gear = gearAt(mouseX, mouseY);
         if (tab >= 0) {
@@ -694,14 +799,45 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             if (lines == null && isHovering(0, 0, imageWidth, 17, mouseX, mouseY)) {
                 lines = List.of(panel.title(), Component.translatable("gui.quantumchest.panel.back").withStyle(ChatFormatting.DARK_GRAY));
             }
-        } else if (mode == Mode.NORMAL && isHovering(7, INFO_Y - 1, 181, 10, mouseX, mouseY)) {
+        } else if (onClearCraft(mouseX, mouseY)) {
+            lines = List.of(Component.translatable("gui.quantumchest.craft.clear_hint"));
+        } else if (mode == Mode.CRAFT && hoveredSlot != null && hoveredSlot.index == QuantumChestMenu.RESULT_INDEX) {
+            lines = craftResultTooltip();
+            replaceVanilla = true;
+        } else if (mode == Mode.CRAFT && hoveredSlot != null && hoveredSlot.index >= QuantumChestMenu.CRAFT_FIRST
+                && !hoveredSlot.hasItem() && menu.getCarried().isEmpty()) {
+            lines = List.of(Component.translatable("gui.quantumchest.craft.slot_empty"),
+                    Component.translatable("gui.quantumchest.craft.slot_refill").withStyle(ChatFormatting.GRAY));
+        } else if (gridMode() && isHovering(7, INFO_Y - 1, 181, 10, mouseX, mouseY)) {
             lines = infoTooltip();
         } else if (hoveredIndex >= 0 && menu.getCarried().isEmpty()) {
             lines = itemTooltip(visible.get(hoveredIndex));
         } else if (mode == Mode.EDIT_TAB && insideGrid(mouseX, mouseY)) {
             lines = List.of(Component.translatable("gui.quantumchest.edit.grid_hint"));
         }
-        if (lines != null) graphics.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
+        if (lines == null) return;
+        if (replaceVanilla) {
+            // Vanilla already queued the plain item tooltip for this slot; ours adds how to take it
+            graphics.setTooltipForNextFrame(font, lines.stream().map(Component::getVisualOrderText).toList(), Optional.empty(),
+                    DefaultTooltipPositioner.INSTANCE, mouseX, mouseY, true, null);
+        } else {
+            graphics.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
+        }
+    }
+
+    /** The item, plus how to take it. Replaces vanilla's tooltip for that slot. */
+    private List<Component> craftResultTooltip() {
+        if (!hoveredSlot.hasItem()) {
+            return List.of(Component.translatable(menu.craftGridEmpty() ? "gui.quantumchest.craft.empty" : "gui.quantumchest.craft.no_recipe")
+                    .withStyle(ChatFormatting.GRAY));
+        }
+        Minecraft mc = Minecraft.getInstance();
+        TooltipFlag flag = mc.options.advancedItemTooltips ? TooltipFlag.Default.ADVANCED : TooltipFlag.Default.NORMAL;
+        List<Component> lines = new ArrayList<>(hoveredSlot.getItem().getTooltipLines(Item.TooltipContext.of(mc.level), mc.player, flag));
+        lines.add(Component.translatable("gui.quantumchest.craft.click_one").withStyle(ChatFormatting.DARK_GRAY));
+        lines.add(Component.translatable("gui.quantumchest.craft.click_all").withStyle(ChatFormatting.DARK_GRAY));
+        lines.add(Component.translatable("gui.quantumchest.craft.refills").withStyle(ChatFormatting.DARK_GRAY));
+        return lines;
     }
 
     private List<Component> filterTooltip() {
@@ -753,7 +889,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         String owner = access().owner().isEmpty() ? "-" : access().owner();
         return List.of(
                 Component.translatable("gui.quantumchest.info.tier", Component.translatable(tier.translationKey())),
-                Component.translatable("gui.quantumchest.info.items", full(menu.clientTotal()), capacityText(tier, false)),
+                Component.translatable("gui.quantumchest.info.items", full(menu.clientTotal()), capacityText(false)),
                 Component.translatable("gui.quantumchest.info.types", full(menu.clientItems().size())),
                 Component.translatable("gui.quantumchest.info.owner", owner),
                 Component.translatable(access().isPublic() ? "gui.quantumchest.access.public" : "gui.quantumchest.access.private"));
@@ -764,13 +900,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private void updateScrollbarDrag(int mouseX, int mouseY) {
         boolean mouseDown = GLFW.glfwGetMouseButton(Minecraft.getInstance().getWindow().handle(),
                 GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_RELEASE;
-        if (!wasMouseDown && mouseDown && !panelMode() && isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, SCROLL_H + 2, mouseX, mouseY)) {
+        if (!wasMouseDown && mouseDown && !panelMode() && isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, scrollHeight() + 2, mouseX, mouseY)) {
             scrolling = hiddenRows() > 0;
         }
         if (!mouseDown) scrolling = false;
         wasMouseDown = mouseDown;
         if (scrolling) {
-            scroll = Mth.clamp((mouseY - topPos - SCROLL_Y - 7.5f) / (SCROLL_H - 15f), 0f, 1f);
+            scroll = Mth.clamp((mouseY - topPos - SCROLL_Y - 7.5f) / (scrollHeight() - 15f), 0f, 1f);
         }
     }
 
@@ -790,7 +926,17 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         int gear = gearAt(x, y);
         if (gear >= 0) {
             ItemStack upgrade = upgradeIn(gear);
-            if (gearEnabled(upgrade)) openPanel(panelFor(upgrade).apply(this));
+            if (isCrafting(upgrade)) {
+                toggleCrafting();
+            } else if (gearEnabled(upgrade)) {
+                openPanel(panelFor(upgrade).apply(this));
+            }
+            return true;
+        }
+        if (onClearCraft(x, y)) {
+            if (!menu.craftGridEmpty()) {
+                minecraft.gameMode.handleInventoryButtonClick(menu.containerId, QuantumChestMenu.BUTTON_CLEAR_CRAFTING);
+            }
             return true;
         }
         // Locked upgrade slots aren't real slots for vanilla; without this a click
@@ -1047,7 +1193,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         }
         int hidden = hiddenRows();
-        boolean overGrid = insideGrid(mouseX, mouseY) || isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, SCROLL_H + 2, mouseX, mouseY);
+        boolean overGrid = insideGrid(mouseX, mouseY) || isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, scrollHeight() + 2, mouseX, mouseY);
         if (hidden > 0 && overGrid && !panelMode()) {
             scroll = Mth.clamp((float) (scroll - scrollY / hidden), 0f, 1f);
             return true;
@@ -1116,9 +1262,11 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     // ---- numbers -----------------------------------------------------------
 
-    private static String capacityText(ChestTier tier, boolean compact) {
-        if (tier.isUnlimited()) return "∞";
-        return compact ? compact(tier.capacity()) : full(tier.capacity());
+    /** The capacity as the server's config has it, not this game's defaults. */
+    private String capacityText(boolean compact) {
+        SyncStatePayload.Access access = access();
+        if (access.unlimited()) return "∞";
+        return compact ? compact(access.capacity()) : full(access.capacity());
     }
 
     /** 1234 -> 1.2k, 2500000 -> 2.5M */

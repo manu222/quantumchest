@@ -4,6 +4,7 @@ import com.manuelaraujo.quantumchest.QuantumChest;
 import com.manuelaraujo.quantumchest.client.ClientHandlers;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.ClickPayload;
+import com.manuelaraujo.quantumchest.network.MachinePayloads;
 import com.manuelaraujo.quantumchest.network.QuantumNetwork;
 import com.manuelaraujo.quantumchest.network.SetFacePayload;
 import com.manuelaraujo.quantumchest.network.SetRejectPayload;
@@ -16,7 +17,7 @@ import net.minecraftforge.network.ChannelBuilder;
 import net.minecraftforge.network.SimpleChannel;
 
 final class ForgeNetwork {
-    private static final int PROTOCOL_VERSION = 5;
+    private static final int PROTOCOL_VERSION = 6;
 
     // addMain runs the handlers on the game thread, not the network thread.
     // The clientbound handlers only ever run on the client.
@@ -34,6 +35,8 @@ final class ForgeNetwork {
                             (payload, context) -> ClientHandlers.onSyncState(payload))
                     .addMain(UpgradeConfigPayloads.CompactOptions.class, UpgradeConfigPayloads.CompactOptions.STREAM_CODEC,
                             (payload, context) -> ClientHandlers.onCompactOptions(payload))
+                    .addMain(MachinePayloads.SmeltOptions.class, MachinePayloads.SmeltOptions.STREAM_CODEC,
+                            (payload, context) -> ClientHandlers.onSmeltOptions(payload))
                 .serverbound()
                     .addMain(ClickPayload.class, ClickPayload.STREAM_CODEC,
                             (payload, context) -> QuantumNetwork.onClick(payload, context.getSender()))
@@ -55,6 +58,14 @@ final class ForgeNetwork {
                             (payload, context) -> QuantumNetwork.onSetMagnet(payload, context.getSender()))
                     .addMain(UpgradeConfigPayloads.RequestCompactOptions.class, UpgradeConfigPayloads.RequestCompactOptions.STREAM_CODEC,
                             (payload, context) -> QuantumNetwork.onRequestCompactOptions(payload, context.getSender()))
+                    .addMain(MachinePayloads.SetRefillRules.class, MachinePayloads.SetRefillRules.STREAM_CODEC,
+                            (payload, context) -> QuantumNetwork.onSetRefillRules(payload, context.getSender()))
+                    .addMain(MachinePayloads.SetSmeltRule.class, MachinePayloads.SetSmeltRule.STREAM_CODEC,
+                            (payload, context) -> QuantumNetwork.onSetSmeltRule(payload, context.getSender()))
+                    .addMain(MachinePayloads.SetFuels.class, MachinePayloads.SetFuels.STREAM_CODEC,
+                            (payload, context) -> QuantumNetwork.onSetFuels(payload, context.getSender()))
+                    .addMain(MachinePayloads.RequestSmeltOptions.class, MachinePayloads.RequestSmeltOptions.STREAM_CODEC,
+                            (payload, context) -> QuantumNetwork.onRequestSmeltOptions(payload, context.getSender()))
             .build();
 
     private ForgeNetwork() {

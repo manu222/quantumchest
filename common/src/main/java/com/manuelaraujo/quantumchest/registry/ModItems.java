@@ -50,8 +50,12 @@ public final class ModItems {
     public static final RegistryEntry<Item, UpgradeItem> VOID_UPGRADE = upgrade("void_upgrade", ChestTier.BASIC);
     public static final RegistryEntry<Item, UpgradeItem> COMPACTOR_UPGRADE = upgrade("compactor_upgrade", ChestTier.REINFORCED);
     public static final RegistryEntry<Item, UpgradeItem> IO_UPGRADE = upgrade("io_upgrade", ChestTier.REINFORCED);
+    public static final RegistryEntry<Item, UpgradeItem> CRAFTING_UPGRADE = upgrade("crafting_upgrade", ChestTier.BASIC);
+    public static final RegistryEntry<Item, UpgradeItem> REFILL_UPGRADE = upgrade("refill_upgrade", ChestTier.ADVANCED);
+    public static final RegistryEntry<Item, UpgradeItem> SMELTING_UPGRADE = upgrade("smelting_upgrade", ChestTier.ADVANCED);
 
-    public static final List<RegistryEntry<Item, UpgradeItem>> UPGRADES = List.of(MAGNET_UPGRADE, VOID_UPGRADE, COMPACTOR_UPGRADE, IO_UPGRADE);
+    public static final List<RegistryEntry<Item, UpgradeItem>> UPGRADES = List.of(MAGNET_UPGRADE, VOID_UPGRADE,
+            COMPACTOR_UPGRADE, IO_UPGRADE, CRAFTING_UPGRADE, REFILL_UPGRADE, SMELTING_UPGRADE);
 
     /** An upgrade with two lore lines: what it does and the tier it needs. */
     private static RegistryEntry<Item, UpgradeItem> upgrade(String name, ChestTier minTier) {

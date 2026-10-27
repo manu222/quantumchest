@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.automation;
 
+import com.manuelaraujo.quantumchest.QuantumConfig;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
@@ -41,6 +42,9 @@ public final class ChestAutomation {
         if (storage.hasUpgrade(ModItems.COMPACTOR_UPGRADE.get()) && storage.compactDue(time)) {
             Compactor.run(level, storage);
         }
+        if (storage.hasUpgrade(ModItems.SMELTING_UPGRADE.get()) && storage.smeltDue(time)) {
+            Smelter.run(level, storage);
+        }
         if (storage.hasUpgrade(ModItems.IO_UPGRADE.get())) {
             Speed speed = Speed.of(storage.tier());
             if ((time + phase) % speed.interval() == 0) transfer(level, chest, storage, speed.items());
@@ -53,11 +57,7 @@ public final class ChestAutomation {
     // ---- magnet ------------------------------------------------------------
 
     public static int magnetRange(ChestTier tier) {
-        return switch (tier) {
-            case BASIC, REINFORCED -> 3;
-            case ADVANCED -> 5;
-            case ELITE, QUANTUM -> 8;
-        };
+        return QuantumConfig.magnetRange(tier);
     }
 
     private static void magnet(ServerLevel level, QuantumChestBlockEntity chest, QuantumStorage storage) {
@@ -82,12 +82,13 @@ public final class ChestAutomation {
     /** How often each face works and how many items it moves each time. */
     public record Speed(int interval, int items) {
         public static Speed of(ChestTier tier) {
-            return switch (tier) {
-                case BASIC, REINFORCED -> new Speed(10, 8);
-                case ADVANCED -> new Speed(10, 32);
-                case ELITE -> new Speed(5, 64);
-                case QUANTUM -> new Speed(2, 128);
+            // Faster tiers also work more often, so items flow instead of arriving in lumps
+            int interval = switch (tier) {
+                case BASIC, REINFORCED, ADVANCED -> 10;
+                case ELITE -> 5;
+                case QUANTUM -> 2;
             };
+            return new Speed(interval, Math.max(1, QuantumConfig.ioPerSecond(tier) * interval / 20));
         }
 
         public int perSecond() {

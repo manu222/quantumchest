@@ -108,6 +108,11 @@ public abstract class Panel {
     public void search(String query) {
     }
 
+    /** Width of the search box, so a panel can keep buttons next to it. */
+    public int searchWidth() {
+        return 116;
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     protected void send(CustomPacketPayload payload) {
@@ -122,6 +127,12 @@ public abstract class Panel {
         long window = Minecraft.getInstance().getWindow().handle();
         return GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
                 || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+    }
+
+    protected static boolean ctrlDown() {
+        long window = Minecraft.getInstance().getWindow().handle();
+        return GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
     }
 
     protected void background(GuiGraphicsExtractor graphics) {

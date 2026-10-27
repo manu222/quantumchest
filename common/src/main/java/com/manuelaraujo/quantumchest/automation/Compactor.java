@@ -80,6 +80,8 @@ public final class Compactor {
      * Everything that can be compacted in this world, for the compactor's
      * screen. Built once from the crafting recipes and kept until they reload.
      */
+    // Ingredient.items() is deprecated but there's no other way to list what an ingredient takes
+    @SuppressWarnings("deprecation")
     public static List<CompactOption> options(ServerLevel level) {
         checkCache(level);
         if (options != null) return options;

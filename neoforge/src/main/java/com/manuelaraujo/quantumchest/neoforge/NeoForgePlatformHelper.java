@@ -8,6 +8,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemStackTemplate;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.level.Level;
 import net.neoforged.fml.ModList;
 
 import java.util.List;
@@ -37,5 +40,16 @@ public final class NeoForgePlatformHelper implements IPlatformHelper {
     @Override
     public <T extends AbstractContainerMenu> MenuType<T> menuType(MenuFactory<T> factory) {
         return new MenuType<>(factory::create, FeatureFlags.VANILLA_SET);
+    }
+
+    @Override
+    public int burnTime(ItemStack stack, Level level) {
+        return stack.isEmpty() ? 0 : Math.max(0, stack.getBurnTime(RecipeType.SMELTING, level.fuelValues()));
+    }
+
+    @Override
+    public ItemStack craftingRemainder(ItemStack stack) {
+        ItemStackTemplate remainder = stack.getCraftingRemainder();
+        return remainder != null ? remainder.create() : ItemStack.EMPTY;
     }
 }

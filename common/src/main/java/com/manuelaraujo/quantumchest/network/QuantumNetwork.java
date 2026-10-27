@@ -58,6 +58,26 @@ public final class QuantumNetwork {
         if (menu != null) menu.sendCompactOptions(player);
     }
 
+    public static void onSetRefillRules(MachinePayloads.SetRefillRules payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleRefillRules(payload.rules(), player);
+    }
+
+    public static void onSetSmeltRule(MachinePayloads.SetSmeltRule payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleSmeltRule(payload.rule(), player);
+    }
+
+    public static void onSetFuels(MachinePayloads.SetFuels payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleFuels(payload.fuels(), player);
+    }
+
+    public static void onRequestSmeltOptions(MachinePayloads.RequestSmeltOptions payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.sendSmeltOptions(player);
+    }
+
     private static QuantumChestMenu openMenu(ServerPlayer player, int containerId) {
         if (player == null || player.isSpectator()) return null;
         if (player.containerMenu instanceof QuantumChestMenu menu && menu.containerId == containerId) return menu;

@@ -53,7 +53,8 @@ public final class QuantumStorage {
             GlobalPos.CODEC.listOf().optionalFieldOf("chests", List.of()).forGetter(QuantumStorage::anchorList),
             FilterRules.CODEC.optionalFieldOf("filter", FilterRules.NONE).forGetter(QuantumStorage::filter),
             VoidRule.CODEC.listOf().optionalFieldOf("destroy", List.of()).forGetter(QuantumStorage::voidRules),
-            CompactRule.CODEC.listOf().optionalFieldOf("compact", List.of()).forGetter(QuantumStorage::compactRules)
+            CompactRule.CODEC.listOf().optionalFieldOf("compact", List.of()).forGetter(QuantumStorage::compactRules),
+            MachineSettings.CODEC.optionalFieldOf("machines", MachineSettings.EMPTY).forGetter(QuantumStorage::machineSettings)
     ).apply(i, QuantumStorage::new));
 
     private final UUID id;
@@ -66,6 +67,16 @@ public final class QuantumStorage {
     private FilterRules filter = FilterRules.NONE;
     private List<VoidRule> voidRules = List.of();
     private final Map<Identifier, CompactRule> compactRules = new LinkedHashMap<>();
+    // Auto-refill, smelter and its fuel. Also shared by the network.
+    private List<RefillRule> refillRules = List.of();
+    private final Map<Identifier, CompactRule> smeltRules = new LinkedHashMap<>();
+    private List<ItemMatch> fuels = List.of();
+    // Burn time left over from the last fuel item, so half a coal isn't wasted
+    private long fuelTicks;
+    private int cookProgress;
+    private int smeltActive;
+    private int smeltCookTime;
+    private int machineVersion;
     // Upgrade slots. All seven always exist; the tier decides how many can be used.
     private final SimpleContainer upgrades = new SimpleContainer(ChestTier.QUANTUM.upgradeSlots()) {
         @Override
@@ -84,19 +95,20 @@ public final class QuantumStorage {
     // Game time of the last compacting pass. Not saved: a network compacts at most once a second.
     // Starts (and goes back to) "long ago", so the first pass happens right away.
     private long compactedAt = -20;
+    private long smeltedAt = -20;
     private Runnable onChange = () -> {
     };
 
     QuantumStorage(UUID id) {
         this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), ChestTier.BASIC, List.of(), List.of(), List.of(), List.of(),
-                FilterRules.NONE, List.of(), List.of());
+                FilterRules.NONE, List.of(), List.of(), MachineSettings.EMPTY);
     }
 
     private QuantumStorage(UUID id, Optional<UUID> owner, String ownerName, AccessMode accessMode,
                            List<Member> members, ChestTier tier, List<CustomTab> tabs,
                            List<ItemStackWithSlot> upgrades, List<QuantumInventory.Entry> items,
                            List<GlobalPos> anchors, FilterRules filter, List<VoidRule> voidRules,
-                           List<CompactRule> compactRules) {
+                           List<CompactRule> compactRules, MachineSettings machines) {
         this.id = id;
         this.owner = owner.orElse(null);
         this.ownerName = ownerName;
@@ -114,6 +126,11 @@ public final class QuantumStorage {
         this.filter = filter;
         this.voidRules = List.copyOf(voidRules);
         for (CompactRule rule : compactRules) this.compactRules.put(rule.item(), rule);
+        this.refillRules = List.copyOf(machines.refill());
+        for (CompactRule rule : machines.smelt()) this.smeltRules.put(rule.item(), rule);
+        this.fuels = List.copyOf(machines.fuels());
+        this.fuelTicks = Math.max(0, machines.fuelTicks());
+        this.cookProgress = Math.max(0, machines.cookProgress());
     }
 
     void setOnChange(Runnable onChange) {
@@ -399,6 +416,106 @@ public final class QuantumStorage {
         return rule != null && rule.enabled() ? rule.keep() : -1;
     }
 
+    // ---- auto-refill, smelter and fuel ---------------------------------------
+
+    private MachineSettings machineSettings() {
+        return new MachineSettings(refillRules, List.copyOf(smeltRules.values()), fuels, fuelTicks, cookProgress);
+    }
+
+    public List<RefillRule> refillRules() {
+        return refillRules;
+    }
+
+    public void setRefillRules(List<RefillRule> rules) {
+        refillRules = RefillRule.sanitize(rules);
+        stateChanged();
+    }
+
+    public List<CompactRule> smeltRules() {
+        return List.copyOf(smeltRules.values());
+    }
+
+    public void setSmeltRule(CompactRule rule) {
+        if (rule.enabled() || rule.keep() > 0) {
+            smeltRules.put(rule.item(), new CompactRule(rule.item(), rule.enabled(), Math.max(0, rule.keep())));
+        } else {
+            smeltRules.remove(rule.item());
+        }
+        stateChanged();
+    }
+
+    /** How many of this item to leave unsmelted, or -1 if the smelter shouldn't touch it. */
+    public long smeltKeep(Item item) {
+        CompactRule rule = smeltRules.get(BuiltInRegistries.ITEM.getKey(item));
+        return rule != null && rule.enabled() ? rule.keep() : -1;
+    }
+
+    public static final int MAX_FUELS = 6;
+
+    /** The fuels the smelter may burn, in the order it tries them. */
+    public List<ItemMatch> fuels() {
+        return fuels;
+    }
+
+    public void setFuels(List<ItemMatch> newFuels) {
+        List<ItemMatch> clean = new ArrayList<>();
+        for (ItemMatch fuel : newFuels) {
+            if (clean.size() >= MAX_FUELS) break;
+            if (fuel.isValid() && !clean.contains(fuel)) clean.add(fuel);
+        }
+        fuels = List.copyOf(clean);
+        stateChanged();
+    }
+
+    public long fuelTicks() {
+        return fuelTicks;
+    }
+
+    /** Burn time left over. Not a state change, but open screens show it, so they get a light resync. */
+    public void setFuelTicks(long ticks) {
+        long clean = Math.max(0, ticks);
+        if (clean == fuelTicks) return;
+        fuelTicks = clean;
+        machineVersion++;
+        markChanged();
+    }
+
+    /** Ticks the current batch has cooked. */
+    public int cookProgress() {
+        return cookProgress;
+    }
+
+    /** Furnaces working right now and how long their items take, for the screen. Not saved. */
+    public int smeltActive() {
+        return smeltActive;
+    }
+
+    public int smeltCookTime() {
+        return smeltCookTime;
+    }
+
+    public void setSmeltStatus(int progress, int active, int cookTime) {
+        if (progress == cookProgress && active == smeltActive && cookTime == smeltCookTime) return;
+        boolean saved = progress != cookProgress;
+        cookProgress = Math.max(0, progress);
+        smeltActive = active;
+        smeltCookTime = cookTime;
+        machineVersion++;
+        if (saved) markChanged();
+    }
+
+    /** Goes up when the smelter's progress or heat moves, so open screens update the bars. */
+    public int machineVersion() {
+        return machineVersion;
+    }
+
+    /** True at most once a second, for the smelter. */
+    public boolean smeltDue(long gameTime) {
+        if (gameTime >= smeltedAt && gameTime - smeltedAt < 20) return false;
+        smeltedAt = gameTime;
+        return true;
+    }
+
     /** False if the filter keeps this item out. */
     public boolean admits(ItemStack stack) {
         return filter.admits(stack);
@@ -537,6 +654,10 @@ public final class QuantumStorage {
         other.anchors.clear();
         // The first chest's filter and destroyer rules win; compactor choices it doesn't have are added
         other.compactRules.forEach(compactRules::putIfAbsent);
+        other.smeltRules.forEach(smeltRules::putIfAbsent);
+        if (refillRules.isEmpty()) refillRules = other.refillRules;
+        if (fuels.isEmpty()) fuels = other.fuels;
+        fuelTicks += other.fuelTicks;
         stateChanged();
         return spare;
     }
@@ -562,6 +683,10 @@ public final class QuantumStorage {
         voidRules = other.voidRules;
         compactRules.clear();
         compactRules.putAll(other.compactRules);
+        refillRules = other.refillRules;
+        smeltRules.clear();
+        smeltRules.putAll(other.smeltRules);
+        fuels = other.fuels;
         stateChanged();
     }
 

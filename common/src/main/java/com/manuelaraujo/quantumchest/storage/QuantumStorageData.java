@@ -1,6 +1,7 @@
 package com.manuelaraujo.quantumchest.storage;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
+import com.manuelaraujo.quantumchest.QuantumConfig;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.GlobalPos;
@@ -52,6 +53,8 @@ public final class QuantumStorageData extends SavedData {
     }
 
     public static QuantumStorageData get(MinecraftServer server) {
+        // Everything that needs the settings goes through here first, so this is where they load
+        QuantumConfig.ensureLoaded(server);
         return server.overworld().getDataStorage().computeIfAbsent(TYPE);
     }
 

@@ -469,6 +469,9 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         }
     }
 
+    // Deprecated in vanilla but still used for Ctrl + pick block in creative. Without it
+    // the copied item would carry the storage id and open the same storage again
+    @SuppressWarnings("deprecation")
     @Override
     public void removeComponentsFromTag(ValueOutput output) {
         super.removeComponentsFromTag(output);
