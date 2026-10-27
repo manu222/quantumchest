@@ -1,0 +1,15 @@
+{
+  "model": {
+    "type": "minecraft:condition",
+    "property": "minecraft:has_component",
+    "component": "quantumchest:stored_chest",
+    "on_true": {
+      "type": "minecraft:model",
+      "model": "quantumchest:item/quantum_entangler_linked"
+    },
+    "on_false": {
+      "type": "minecraft:model",
+      "model": "quantumchest:item/quantum_entangler"
+    }
+  }
+}

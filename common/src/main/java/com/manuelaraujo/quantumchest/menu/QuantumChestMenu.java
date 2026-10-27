@@ -1,7 +1,7 @@
 package com.manuelaraujo.quantumchest.menu;
 
+import com.manuelaraujo.quantumchest.block.ChestNetwork;
 import com.manuelaraujo.quantumchest.block.ChestTier;
-import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
 import com.manuelaraujo.quantumchest.item.ChestUpgrade;
 import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
@@ -30,12 +30,15 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * The chest screen. Only the player inventory uses real slots: the item grid
  * is drawn by the screen from a list the server keeps in sync. Clicks on the
  * grid travel as {@link com.manuelaraujo.quantumchest.network.ClickPayload}
  * and are resolved here, on the server.
+ *
+ * The same menu serves a placed chest and a remote terminal: see {@link StorageHost}.
  */
 public class QuantumChestMenu extends AbstractContainerMenu {
     public static final int PLAYER_INV_X = 8;
@@ -46,8 +49,8 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private static final int PLAYER_SLOTS = 36;
     private static final int MAX_ENTRIES_PER_PACKET = 512;
 
-    // Server side: the chest being viewed. Null on the client.
-    private final QuantumChestBlockEntity chest;
+    // Server side: what is being viewed. Null on the client.
+    private final StorageHost host;
     private final Player player;
 
     // Server side: what this player's client has been told so far
@@ -67,9 +70,9 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         this(containerId, inventory, null);
     }
 
-    public QuantumChestMenu(int containerId, Inventory inventory, QuantumChestBlockEntity chest) {
+    public QuantumChestMenu(int containerId, Inventory inventory, StorageHost host) {
         super(ModMenus.QUANTUM_CHEST.get(), containerId);
-        this.chest = chest;
+        this.host = host;
         this.player = inventory.player;
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 9; col++) {
@@ -81,15 +84,27 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         }
         // Upgrade slots, in a column to the right of the panel. On the client a
         // plain container stands in; vanilla slot sync fills it from the server.
-        Container upgrades = chest != null ? chest.storage().upgrades() : new SimpleContainer(UPGRADE_SLOTS);
+        Container upgrades = host != null ? host.storage().upgrades() : new SimpleContainer(UPGRADE_SLOTS);
         for (int i = 0; i < UPGRADE_SLOTS; i++) {
             addSlot(new UpgradeSlot(upgrades, i, UPGRADE_X, UPGRADE_Y + i * 18));
         }
     }
 
+    /** Tier of the storage on screen, on either side. */
+    public ChestTier tier() {
+        QuantumStorage storage = host != null ? host.storage() : null;
+        return storage != null ? storage.tier() : clientTier();
+    }
+
     /** How many upgrade slots the current tier unlocks. */
     public int activeUpgradeSlots() {
-        return (chest != null ? chest.tier() : clientTier()).upgradeSlots();
+        return tier().upgradeSlots();
+    }
+
+    /** True if this screen shows that storage. Server side. */
+    public boolean shows(UUID storageId) {
+        QuantumStorage storage = host != null ? host.storage() : null;
+        return storage != null && storage.id().equals(storageId);
     }
 
     private class UpgradeSlot extends Slot {
@@ -102,9 +117,19 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             return getContainerSlot() < activeUpgradeSlots();
         }
 
+        // One of each upgrade per chest: a second one would do nothing
         @Override
         public boolean mayPlace(ItemStack stack) {
-            return isActive() && stack.getItem() instanceof ChestUpgrade;
+            return isActive() && stack.getItem() instanceof ChestUpgrade upgrade && tier().atLeast(upgrade.minTier())
+                    && !alreadyInstalled(stack, this);
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            QuantumStorage storage = host != null ? host.storage() : null;
+            if (storage == null || storage.canRemoveUpgrade(getItem())) return true;
+            player.sendOverlayMessage(Component.translatable("message.quantumchest.tunnel.in_use"));
+            return false;
         }
 
         @Override
@@ -113,10 +138,18 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         }
     }
 
+    private boolean alreadyInstalled(ItemStack stack, Slot except) {
+        for (int i = 0; i < UPGRADE_SLOTS; i++) {
+            Slot slot = slots.get(PLAYER_SLOTS + i);
+            if (slot != except && slot.getItem().is(stack.getItem())) return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean stillValid(Player player) {
-        if (chest == null) return true;
-        return Container.stillValidBlockEntity(chest, player) && chest.storage().canUse(player);
+        if (host == null) return true;
+        return host.storage() != null && host.stillValid(player);
     }
 
     /**
@@ -125,11 +158,12 @@ public class QuantumChestMenu extends AbstractContainerMenu {
      */
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
-        if (chest == null || index < 0 || index >= slots.size()) return ItemStack.EMPTY;
+        if (host == null || index < 0 || index >= slots.size()) return ItemStack.EMPTY;
         Slot slot = slots.get(index);
         if (!slot.hasItem()) return ItemStack.EMPTY;
         ItemStack stack = slot.getItem();
         if (index >= PLAYER_SLOTS) {
+            if (!slot.mayPickup(player)) return ItemStack.EMPTY;
             moveItemStackTo(stack, 0, PLAYER_SLOTS, true);
             slot.setChanged();
             return ItemStack.EMPTY;
@@ -139,9 +173,11 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             slot.setChanged();
             return ItemStack.EMPTY;
         }
-        long stored = chest.insert(stack);
+        QuantumStorage storage = host.storage();
+        long stored = storage.inventory().insert(stack, storage.tier().capacity());
         if (stored > 0) {
             stack.shrink((int) stored);
+            storage.markChanged();
             slot.setChanged();
         }
         // Returning empty stops vanilla from calling us again in a loop
@@ -151,10 +187,10 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     // ---- server: clicks on the grid ----------------------------------------
 
     public void handleClick(ClickAction action, ItemStack clicked, ServerPlayer player) {
-        if (chest == null || !stillValid(player)) return;
-        QuantumStorage storage = chest.storage();
+        if (host == null || !stillValid(player)) return;
+        QuantumStorage storage = host.storage();
         QuantumInventory inventory = storage.inventory();
-        long capacity = chest.tier().capacity();
+        long capacity = storage.tier().capacity();
         ItemStack carried = getCarried();
 
         switch (action) {
@@ -203,8 +239,9 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     @Override
     public void broadcastChanges() {
         super.broadcastChanges();
-        if (chest == null || !(player instanceof ServerPlayer serverPlayer)) return;
-        QuantumStorage storage = chest.storage();
+        if (host == null || !(player instanceof ServerPlayer serverPlayer)) return;
+        QuantumStorage storage = host.storage();
+        if (storage == null) return;
         syncState(storage, serverPlayer);
         syncItems(storage.inventory(), serverPlayer);
     }
@@ -213,7 +250,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         if (storage.stateVersion() == sentStateVersion) return;
         sentStateVersion = storage.stateVersion();
         SyncStatePayload.Access access = new SyncStatePayload.Access(
-                chest.tier().ordinal(), storage.ownerName(), storage.isPublic(),
+                storage.tier().ordinal(), storage.ownerName(), storage.isPublic(),
                 storage.canManage(serverPlayer), storage.canEditTabs(serverPlayer), storage.memberNames());
         Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs()));
     }
@@ -252,8 +289,8 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     // ---- server: settings and tabs -----------------------------------------
 
     public void handleSettings(ChestSettingsPayload.Action action, String value, ServerPlayer player) {
-        if (chest == null || !stillValid(player)) return;
-        QuantumStorage storage = chest.storage();
+        if (host == null || !stillValid(player)) return;
+        QuantumStorage storage = host.storage();
         if (!storage.canManage(player)) return;
 
         switch (action) {
@@ -272,13 +309,13 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             }
             case REMOVE_MEMBER -> storage.removeMember(value.strip());
         }
-        chest.syncAccess(storage);
+        ChestNetwork.syncAccess(player.level().getServer(), storage);
         broadcastChanges();
     }
 
     public void handleSetTabs(List<CustomTab> tabs, ServerPlayer player) {
-        if (chest == null || !stillValid(player)) return;
-        QuantumStorage storage = chest.storage();
+        if (host == null || !stillValid(player)) return;
+        QuantumStorage storage = host.storage();
         if (!storage.canEditTabs(player)) return;
         storage.setTabs(tabs);
         broadcastChanges();

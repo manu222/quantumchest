@@ -24,7 +24,7 @@ public final class ModCreativeTabs {
                     () -> ModItems.QUANTUM_CHEST.get().getDefaultInstance(),
                     ModCreativeTabs::contents));
 
-    /** A chest of every tier (handy for testing) and the upgrade kits. */
+    /** A chest of every tier (handy for testing), the upgrade kits and the tools. */
     private static List<ItemStack> contents() {
         List<ItemStack> stacks = new ArrayList<>();
         for (ChestTier tier : ChestTier.values()) {
@@ -35,6 +35,9 @@ public final class ModCreativeTabs {
             stacks.add(chest);
         }
         ModItems.KITS.forEach(kit -> stacks.add(new ItemStack(kit.get())));
+        stacks.add(new ItemStack(ModItems.QUANTUM_ENTANGLER.get()));
+        stacks.add(new ItemStack(ModItems.SUPERPOSITION_TERMINAL.get()));
+        stacks.add(new ItemStack(ModItems.QUANTUM_TUNNEL.get()));
         return stacks;
     }
 

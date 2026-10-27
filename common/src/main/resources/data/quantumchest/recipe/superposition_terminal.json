@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " A ",
+    "IGI",
+    "IEI"
+  ],
+  "key": {
+    "A": "minecraft:amethyst_shard",
+    "I": "minecraft:iron_ingot",
+    "G": "minecraft:glass_pane",
+    "E": "minecraft:ender_eye"
+  },
+  "result": {
+    "id": "quantumchest:superposition_terminal"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "CPC",
+    "PEP",
+    "CPC"
+  ],
+  "key": {
+    "C": "minecraft:crying_obsidian",
+    "P": "minecraft:popped_chorus_fruit",
+    "E": "minecraft:ender_eye"
+  },
+  "result": {
+    "id": "quantumchest:quantum_tunnel"
+  }
+}

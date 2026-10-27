@@ -80,7 +80,7 @@ public final class QuantumCommands {
             return 0;
         }
         ItemStack chest = new ItemStack(ModItems.QUANTUM_CHEST.get());
-        chest.set(ModDataComponents.STORAGE_ID.get(), id);
+        chest.set(ModDataComponents.STORAGE_ID.get(), storage.id());
         chest.set(DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY.with(QuantumChestBlock.TIER, storage.tier()));
         if (!target.getInventory().add(chest)) {
             target.drop(chest, false);

@@ -4,6 +4,7 @@ import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.item.QuantumChestItem;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
+import com.manuelaraujo.quantumchest.menu.StorageHost;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.registry.ModDataComponents;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
@@ -12,6 +13,7 @@ import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.QuantumStorageData;
 import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponentGetter;
 import net.minecraft.core.component.DataComponentMap;
@@ -25,6 +27,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -59,6 +62,8 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private Set<UUID> membersCache = Set.of();
     private Set<String> memberNamesCache = Set.of();
     private List<QuantumInventory.Entry> legacyItems = List.of();
+    // Set after the first server tick, once the chest has caught up with its network
+    private boolean checked;
 
     public QuantumChestBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.QUANTUM_CHEST.get(), pos, state);
@@ -72,12 +77,20 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         return storageId;
     }
 
-    /** The storage this chest shows, created on first use. Server side only. */
+    /**
+     * The storage this chest shows, created on first use. Server side only.
+     * Also keeps the chest in step with its network: follows the id if the
+     * storage was entangled into another one, registers its position and
+     * takes the network tier.
+     */
     public QuantumStorage storage() {
         QuantumStorageData data = QuantumStorageData.get(server());
-        QuantumStorage storage = storageId == null ? null : data.get(storageId);
+        QuantumStorage storage = data.get(storageId);
         if (storage == null) {
             storage = data.create();
+            storageId = storage.id();
+            setChanged();
+        } else if (!storage.id().equals(storageId)) {
             storageId = storage.id();
             setChanged();
         }
@@ -89,9 +102,57 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
             storage.markChanged();
             setChanged();
         }
-        storage.setTier(tier());
+        storage.addAnchor(anchor());
+        matchTier(storage);
         syncAccess(storage);
         return storage;
+    }
+
+    public GlobalPos anchor() {
+        return GlobalPos.of(level.dimension(), worldPosition);
+    }
+
+    /** Points this chest at another storage, after entangling or splitting it off. */
+    public void relink(QuantumStorage storage) {
+        storageId = storage.id();
+        setChanged();
+        storage.addAnchor(anchor());
+        matchTier(storage);
+        syncAccess(storage);
+    }
+
+    /**
+     * Chest and network end up at the higher of their two tiers. A kit raises
+     * the network, and this is how the other chests follow it.
+     */
+    public void matchTier(QuantumStorage storage) {
+        ChestTier own = tier();
+        if (storage.tier().ordinal() > own.ordinal()) {
+            if (level != null) {
+                level.setBlock(worldPosition, getBlockState().setValue(QuantumChestBlock.TIER, storage.tier()), Block.UPDATE_ALL);
+            }
+        } else if (own.ordinal() > storage.tier().ordinal()) {
+            storage.setTier(own);
+        }
+    }
+
+    /**
+     * The first tick after the chunk loads, catch up with anything that changed
+     * while it was unloaded (a kit used on another chest of the network).
+     */
+    public static void serverTick(Level level, BlockPos pos, BlockState state, QuantumChestBlockEntity chest) {
+        if (chest.checked) return;
+        chest.checked = true;
+        if (chest.storageId != null) chest.storage();
+    }
+
+    /** The chest is gone for good (broken, not unloaded): take it off its network. */
+    @Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+        super.preRemoveSideEffects(pos, state);
+        if (level == null || level.getServer() == null) return;
+        QuantumStorage storage = existingStorage();
+        if (storage != null) storage.removeAnchor(GlobalPos.of(level.dimension(), pos));
     }
 
     /** Makes the player the owner if the storage has none yet. */
@@ -127,7 +188,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
 
     /** The storage if this chest already has one, without creating it. Server side only. */
     public QuantumStorage existingStorage() {
-        return storageId == null ? null : QuantumStorageData.get(server()).get(storageId);
+        return QuantumStorageData.get(server()).get(storageId);
     }
 
     private MinecraftServer server() {
@@ -140,7 +201,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     /** Returns how many items of the stack were stored. The stack itself is not changed. */
     public long insert(ItemStack stack) {
         QuantumStorage storage = storage();
-        long stored = storage.inventory().insert(stack, tier().capacity());
+        long stored = storage.inventory().insert(stack, storage.tier().capacity());
         if (stored > 0) storage.markChanged();
         return stored;
     }
@@ -152,7 +213,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
 
     @Override
     public AbstractContainerMenu createMenu(int containerId, Inventory inventory, Player player) {
-        return new QuantumChestMenu(containerId, inventory, this);
+        return new QuantumChestMenu(containerId, inventory, new StorageHost.Chest(this));
     }
 
     @Override

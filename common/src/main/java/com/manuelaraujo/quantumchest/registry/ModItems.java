@@ -3,6 +3,9 @@ package com.manuelaraujo.quantumchest.registry;
 import com.manuelaraujo.quantumchest.QuantumChest;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.item.QuantumChestItem;
+import com.manuelaraujo.quantumchest.item.QuantumEntanglerItem;
+import com.manuelaraujo.quantumchest.item.QuantumTunnelItem;
+import com.manuelaraujo.quantumchest.item.SuperpositionTerminalItem;
 import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
@@ -28,6 +31,19 @@ public final class ModItems {
     public static final RegistryEntry<Item, TierUpgradeItem> QUANTUM_KIT = kit("quantum_upgrade_kit", ChestTier.QUANTUM);
 
     public static final List<RegistryEntry<Item, TierUpgradeItem>> KITS = List.of(REINFORCED_KIT, ADVANCED_KIT, ELITE_KIT, QUANTUM_KIT);
+
+    public static final RegistryEntry<Item, QuantumEntanglerItem> QUANTUM_ENTANGLER = ITEMS.registerWithKey("quantum_entangler",
+            key -> new QuantumEntanglerItem(new Item.Properties().setId(key).stacksTo(1)));
+
+    public static final RegistryEntry<Item, SuperpositionTerminalItem> SUPERPOSITION_TERMINAL = ITEMS.registerWithKey("superposition_terminal",
+            key -> new SuperpositionTerminalItem(new Item.Properties().setId(key).stacksTo(1)));
+
+    public static final RegistryEntry<Item, QuantumTunnelItem> QUANTUM_TUNNEL = ITEMS.registerWithKey("quantum_tunnel",
+            key -> new QuantumTunnelItem(new Item.Properties().setId(key).stacksTo(1)
+                    .component(DataComponents.LORE, new ItemLore(List.of(
+                            Component.translatable("item.quantumchest.quantum_tunnel.lore").withStyle(ChatFormatting.GRAY),
+                            Component.translatable("item.quantumchest.upgrade.min_tier",
+                                    Component.translatable(ChestTier.ELITE.translationKey())).withStyle(ChatFormatting.DARK_GRAY))))));
 
     private static RegistryEntry<Item, TierUpgradeItem> kit(String name, ChestTier target) {
         return ITEMS.registerWithKey(name, key -> {

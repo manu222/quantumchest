@@ -1,7 +1,9 @@
 package com.manuelaraujo.quantumchest.block;
 
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
+import com.manuelaraujo.quantumchest.item.QuantumEntanglerItem;
 import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
+import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -25,6 +27,8 @@ import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -71,6 +75,13 @@ public class QuantumChestBlock extends BaseEntityBlock {
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new QuantumChestBlockEntity(pos, state);
+    }
+
+    // Only does something on the first tick after loading, see QuantumChestBlockEntity#serverTick
+    @Override
+    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+        if (level.isClientSide()) return null;
+        return createTickerHelper(type, ModBlockEntities.QUANTUM_CHEST.get(), QuantumChestBlockEntity::serverTick);
     }
 
     // ---- ownership -------------------------------------------------------
@@ -146,12 +157,15 @@ public class QuantumChestBlock extends BaseEntityBlock {
     // ---- opening the chest -------------------------------------------------
 
     /**
-     * Right click with an upgrade kit raises the tier. With anything else in
-     * hand it opens the chest, same as an empty hand.
+     * Right click with an upgrade kit raises the tier of the chest and of every
+     * chest entangled with it. The entangler does its own thing (see
+     * QuantumEntanglerItem). With anything else in hand it opens the chest,
+     * same as an empty hand.
      */
     @Override
     protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
                                           Player player, InteractionHand hand, BlockHitResult hit) {
+        if (stack.getItem() instanceof QuantumEntanglerItem) return InteractionResult.PASS;
         if (!(stack.getItem() instanceof TierUpgradeItem kit)) return InteractionResult.TRY_WITH_EMPTY_HAND;
         if (level.isClientSide()) return InteractionResult.SUCCESS;
         if (!(level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest)) return InteractionResult.PASS;
@@ -161,7 +175,7 @@ public class QuantumChestBlock extends BaseEntityBlock {
             player.sendOverlayMessage(Component.translatable("message.quantumchest.upgrade.not_owner", storage.ownerName()));
             return InteractionResult.FAIL;
         }
-        ChestTier current = state.getValue(TIER);
+        ChestTier current = storage.tier();
         if (current != kit.required()) {
             player.sendOverlayMessage(Component.translatable("message.quantumchest.upgrade.wrong_tier",
                     Component.translatable(kit.required().translationKey()),
@@ -169,8 +183,10 @@ public class QuantumChestBlock extends BaseEntityBlock {
             return InteractionResult.FAIL;
         }
 
-        // Same block, so the block entity and everything it points to stay
-        level.setBlock(pos, state.setValue(TIER, kit.target()), Block.UPDATE_ALL);
+        // Same block, so the block entities and everything they point to stay.
+        // Chests in unloaded chunks follow when they load.
+        storage.setTier(kit.target());
+        ChestNetwork.matchTier(level.getServer(), storage);
         chest.storage();
         if (!player.hasInfiniteMaterials()) stack.shrink(1);
         level.playSound(null, pos, SoundEvents.SMITHING_TABLE_USE, SoundSource.BLOCKS, 1.0f, 1.0f);
@@ -192,8 +208,14 @@ public class QuantumChestBlock extends BaseEntityBlock {
 
     private static boolean checkAccess(QuantumChestBlockEntity chest, Player player) {
         QuantumStorage storage = chest.storage();
-        if (storage.canUse(player)) return true;
-        player.sendOverlayMessage(Component.translatable("message.quantumchest.locked", storage.ownerName()));
-        return false;
+        if (!storage.canUse(player)) {
+            player.sendOverlayMessage(Component.translatable("message.quantumchest.locked", storage.ownerName()));
+            return false;
+        }
+        if (!storage.worksIn(chest.getLevel().dimension())) {
+            player.sendOverlayMessage(Component.translatable("message.quantumchest.tunnel.needed_here"));
+            return false;
+        }
+        return true;
     }
 }

@@ -1,6 +1,9 @@
 package com.manuelaraujo.quantumchest.block;
 
 import com.mojang.serialization.Codec;
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.StringRepresentable;
 
 /**
@@ -15,6 +18,8 @@ public enum ChestTier implements StringRepresentable {
     QUANTUM("quantum", Long.MAX_VALUE, 7);
 
     public static final Codec<ChestTier> CODEC = StringRepresentable.fromEnum(ChestTier::values);
+    public static final StreamCodec<ByteBuf, ChestTier> STREAM_CODEC =
+            ByteBufCodecs.idMapper(i -> values()[Math.max(0, Math.min(i, values().length - 1))], ChestTier::ordinal);
 
     private final String name;
     private final long capacity;
@@ -42,6 +47,14 @@ public enum ChestTier implements StringRepresentable {
     public ChestTier next() {
         int i = ordinal() + 1;
         return i < values().length ? values()[i] : null;
+    }
+
+    public boolean atLeast(ChestTier other) {
+        return ordinal() >= other.ordinal();
+    }
+
+    public static ChestTier max(ChestTier a, ChestTier b) {
+        return a.ordinal() >= b.ordinal() ? a : b;
     }
 
     public String translationKey() {

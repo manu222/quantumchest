@@ -1,0 +1,7 @@
+{
+  "parent": "quantumchest:item/superposition_terminal",
+  "textures": {
+    "0": "quantumchest:item/superposition_terminal_elite",
+    "particle": "quantumchest:item/superposition_terminal_elite"
+  }
+}

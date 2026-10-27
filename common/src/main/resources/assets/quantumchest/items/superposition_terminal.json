@@ -1,0 +1,48 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:component",
+    "component": "quantumchest:linked_tier",
+    "cases": [
+      {
+        "when": "basic",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:item/superposition_terminal_basic"
+        }
+      },
+      {
+        "when": "reinforced",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:item/superposition_terminal_reinforced"
+        }
+      },
+      {
+        "when": "advanced",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:item/superposition_terminal_advanced"
+        }
+      },
+      {
+        "when": "elite",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:item/superposition_terminal_elite"
+        }
+      },
+      {
+        "when": "quantum",
+        "model": {
+          "type": "minecraft:model",
+          "model": "quantumchest:item/superposition_terminal_quantum"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "quantumchest:item/superposition_terminal"
+    }
+  }
+}
