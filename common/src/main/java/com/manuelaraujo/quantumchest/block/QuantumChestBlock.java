@@ -1,12 +1,15 @@
 package com.manuelaraujo.quantumchest.block;
 
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
+import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -142,11 +145,38 @@ public class QuantumChestBlock extends BaseEntityBlock {
 
     // ---- opening the chest -------------------------------------------------
 
-    /** Right click with something in hand opens the chest too, same as an empty hand. */
+    /**
+     * Right click with an upgrade kit raises the tier. With anything else in
+     * hand it opens the chest, same as an empty hand.
+     */
     @Override
     protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
                                           Player player, InteractionHand hand, BlockHitResult hit) {
-        return InteractionResult.TRY_WITH_EMPTY_HAND;
+        if (!(stack.getItem() instanceof TierUpgradeItem kit)) return InteractionResult.TRY_WITH_EMPTY_HAND;
+        if (level.isClientSide()) return InteractionResult.SUCCESS;
+        if (!(level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest)) return InteractionResult.PASS;
+
+        QuantumStorage storage = chest.storage();
+        if (!storage.canManage(player)) {
+            player.sendOverlayMessage(Component.translatable("message.quantumchest.upgrade.not_owner", storage.ownerName()));
+            return InteractionResult.FAIL;
+        }
+        ChestTier current = state.getValue(TIER);
+        if (current != kit.required()) {
+            player.sendOverlayMessage(Component.translatable("message.quantumchest.upgrade.wrong_tier",
+                    Component.translatable(kit.required().translationKey()),
+                    Component.translatable(current.translationKey())));
+            return InteractionResult.FAIL;
+        }
+
+        // Same block, so the block entity and everything it points to stay
+        level.setBlock(pos, state.setValue(TIER, kit.target()), Block.UPDATE_ALL);
+        chest.storage();
+        if (!player.hasInfiniteMaterials()) stack.shrink(1);
+        level.playSound(null, pos, SoundEvents.SMITHING_TABLE_USE, SoundSource.BLOCKS, 1.0f, 1.0f);
+        player.sendOverlayMessage(Component.translatable("message.quantumchest.upgrade.done",
+                Component.translatable(kit.target().translationKey())));
+        return InteractionResult.SUCCESS;
     }
 
     @Override

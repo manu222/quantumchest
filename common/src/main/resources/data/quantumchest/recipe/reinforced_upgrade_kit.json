@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "BGB",
+    "GPG",
+    "BGB"
+  ],
+  "key": {
+    "B": "minecraft:iron_block",
+    "G": "minecraft:gold_ingot",
+    "P": "minecraft:ender_pearl"
+  },
+  "result": {
+    "id": "quantumchest:reinforced_upgrade_kit"
+  }
+}

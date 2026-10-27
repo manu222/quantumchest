@@ -118,7 +118,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         topPos += TAB_ROOM;
         chestTabs = new ChestTabs();
 
-        searchBox = box(82, 6, 88, 100, "gui.quantumchest.search");
+        searchBox = box(10, 6, 160, 100, "gui.quantumchest.search");
         searchBox.setValue(lastSearch);
         nameBox = box(9, INFO_Y, 78, CustomTab.MAX_NAME, "gui.quantumchest.edit.name");
         tagsBox = box(93, INFO_Y, 94, 200, "gui.quantumchest.edit.tags");
@@ -269,12 +269,34 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
         super.extractBackground(graphics, mouseX, mouseY, partialTick);
         graphics.blit(RenderPipelines.GUI_TEXTURED, TEXTURE, leftPos, topPos, 0, 0, imageWidth, imageHeight, 256, 256);
+        drawUpgradeColumn(graphics);
         // Dark fields behind the text boxes that only exist in some modes
         if (mode == Mode.EDIT_TAB) {
             textField(graphics, 7, INFO_Y - 2, 82);
             textField(graphics, 91, INFO_Y - 2, 98);
         } else if (mode == Mode.MEMBERS) {
             textField(graphics, 7, INFO_Y - 2, 154);
+        }
+    }
+
+    /** The strip of upgrade slots to the right of the panel. Locked slots show a darker square. */
+    private void drawUpgradeColumn(GuiGraphicsExtractor graphics) {
+        int x = leftPos + QuantumChestMenu.UPGRADE_X - 1;
+        int top = topPos + QuantumChestMenu.UPGRADE_Y - 1;
+        int slots = QuantumChestMenu.UPGRADE_SLOTS;
+        graphics.fill(x - 4, top - 4, x + 22, top + slots * 18 + 4, 0xFF000000);
+        graphics.fill(x - 3, top - 3, x + 21, top + slots * 18 + 3, 0xFFC6C6C6);
+        int active = menu.activeUpgradeSlots();
+        for (int i = 0; i < slots; i++) {
+            int y = top + i * 18;
+            if (i < active) {
+                graphics.fill(x, y, x + 18, y + 18, 0xFF373737);
+                graphics.fill(x + 1, y + 1, x + 18, y + 18, 0xFFFFFFFF);
+                graphics.fill(x + 1, y + 1, x + 17, y + 17, 0xFF8B8B8B);
+            } else {
+                graphics.fill(x + 1, y + 1, x + 17, y + 17, 0xFF555555);
+                graphics.fill(x + 6, y + 8, x + 12, y + 10, 0xFF3A3A3A);
+            }
         }
     }
 
@@ -285,11 +307,14 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     /** Labels are drawn relative to the top left corner of the panel. */
     @Override
     protected void extractLabels(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-        graphics.text(font, title.getString(), titleLabelX, titleLabelY, 0xFF404040, false);
+        // The search box takes the top row, so the chest name goes on the row above the inventory
         if (mode == Mode.NORMAL) {
-            graphics.text(font, playerInventoryTitle.getString(), inventoryLabelX, inventoryLabelY, 0xFF404040, false);
+            graphics.text(font, title.getString(), 8, INFO_Y, 0xFF404040, false);
             String info = compact(menu.clientTotal()) + " / " + capacityText(menu.clientTier(), true);
             graphics.text(font, info, imageWidth - 8 - font.width(info), INFO_Y, 0xFF404040, false);
+        } else if (mode == Mode.MEMBERS) {
+            graphics.text(font, Component.translatable("gui.quantumchest.members", access().members().size()).getString(),
+                    8, 6, 0xFF404040, false);
         }
 
         hoveredIndex = -1;
@@ -440,7 +465,13 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
                     Component.translatable("gui.quantumchest.access.toggle").withStyle(ChatFormatting.GRAY));
         } else if (mode != Mode.EDIT_TAB && access().canManage() && onSide(SIDE_B_Y, mouseX, mouseY)) {
             lines = List.of(Component.translatable("gui.quantumchest.members", access().members().size()));
-        } else if (mode == Mode.NORMAL && isHovering(90, INFO_Y - 1, 98, 10, mouseX, mouseY)) {
+        } else if (upgradeSlotAt(mouseX, mouseY) >= menu.activeUpgradeSlots()) {
+            lines = List.of(Component.translatable("gui.quantumchest.upgrades.locked",
+                    Component.translatable(tierForSlot(upgradeSlotAt(mouseX, mouseY)).translationKey())));
+        } else if (upgradeSlotAt(mouseX, mouseY) >= 0 && menu.getCarried().isEmpty()
+                && !menu.slots.get(36 + upgradeSlotAt(mouseX, mouseY)).hasItem()) {
+            lines = List.of(Component.translatable("gui.quantumchest.upgrades.empty"));
+        } else if (mode == Mode.NORMAL && isHovering(7, INFO_Y - 1, 181, 10, mouseX, mouseY)) {
             lines = infoTooltip();
         } else if (hoveredIndex >= 0 && menu.getCarried().isEmpty()) {
             lines = itemTooltip(visible.get(hoveredIndex));
@@ -448,6 +479,22 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             lines = List.of(Component.translatable("gui.quantumchest.edit.grid_hint"));
         }
         if (lines != null) graphics.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
+    }
+
+    /** Index of the upgrade slot under the mouse (locked or not), or -1. */
+    private int upgradeSlotAt(double mouseX, double mouseY) {
+        for (int i = 0; i < QuantumChestMenu.UPGRADE_SLOTS; i++) {
+            if (isHovering(QuantumChestMenu.UPGRADE_X - 1, QuantumChestMenu.UPGRADE_Y - 1 + i * 18, 18, 18, mouseX, mouseY)) return i;
+        }
+        return -1;
+    }
+
+    /** The lowest tier that unlocks a given upgrade slot. */
+    private static ChestTier tierForSlot(int slot) {
+        for (ChestTier tier : ChestTier.values()) {
+            if (tier.upgradeSlots() > slot) return tier;
+        }
+        return ChestTier.QUANTUM;
     }
 
     private List<Component> itemTooltip(Map.Entry<ItemKey, Long> entry) {
@@ -498,6 +545,9 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
         if (clickTabRow(x, y, button)) return true;
         if (clickSideButtons(x, y)) return true;
+        // Locked upgrade slots aren't real slots for vanilla; without this a click
+        // there would count as outside the screen and throw the cursor item away
+        if (upgradeSlotAt(x, y) >= menu.activeUpgradeSlots()) return true;
 
         if (mode == Mode.MEMBERS) {
             if (insideGrid(x, y)) {
@@ -522,7 +572,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
                 return true;
             }
         }
-        if (button == 1 && searchBox.isVisible() && isHovering(80, 4, 93, 12, x, y)) {
+        if (button == 1 && searchBox.isVisible() && isHovering(7, 4, 166, 12, x, y)) {
             searchBox.setValue("");
             return true;
         }

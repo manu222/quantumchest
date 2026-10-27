@@ -2,6 +2,7 @@ package com.manuelaraujo.quantumchest.block.entity;
 
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
+import com.manuelaraujo.quantumchest.item.QuantumChestItem;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.registry.ModDataComponents;
@@ -9,6 +10,7 @@ import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.QuantumStorageData;
+import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponentGetter;
@@ -30,9 +32,11 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * The block only knows which storage it shows. The items themselves live in
@@ -44,6 +48,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private static final String OWNER_TAG = "Owner";
     private static final String PUBLIC_TAG = "Public";
     private static final String MEMBERS_TAG = "Members";
+    private static final String MEMBER_NAMES_TAG = "MemberNames";
     // Phase 0 kept the items inside the block. Read them once and move them over.
     private static final String LEGACY_ITEMS_TAG = "Items";
 
@@ -52,6 +57,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
     private UUID ownerCache;
     private boolean publicCache;
     private Set<UUID> membersCache = Set.of();
+    private Set<String> memberNamesCache = Set.of();
     private List<QuantumInventory.Entry> legacyItems = List.of();
 
     public QuantumChestBlockEntity(BlockPos pos, BlockState state) {
@@ -99,16 +105,20 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
 
     /** What the client can check without asking the server. Operators aren't known here. */
     public boolean clientCanUse(Player player) {
-        return QuantumStorage.canUse(ownerCache, publicCache, membersCache, player.getUUID());
+        return QuantumStorage.canUse(ownerCache, publicCache, membersCache, memberNamesCache,
+                player.getUUID(), player.getName().getString());
     }
 
     /** Copies the storage permissions into the block and tells clients if they changed. */
     public void syncAccess(QuantumStorage storage) {
+        Set<String> names = storage.memberNames().stream()
+                .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet());
         if (Objects.equals(ownerCache, storage.owner()) && publicCache == storage.isPublic()
-                && membersCache.equals(storage.members())) return;
+                && membersCache.equals(storage.members()) && memberNamesCache.equals(names)) return;
         ownerCache = storage.owner();
         publicCache = storage.isPublic();
         membersCache = storage.members();
+        memberNamesCache = names;
         setChanged();
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
@@ -137,7 +147,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
 
     @Override
     public Component getDisplayName() {
-        return Component.translatable("container.quantumchest.quantum_chest");
+        return Component.translatable(QuantumChestItem.nameKey(tier()));
     }
 
     @Override
@@ -161,6 +171,10 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
             var members = output.list(MEMBERS_TAG, UUIDUtil.CODEC);
             membersCache.forEach(members::add);
         }
+        if (!memberNamesCache.isEmpty()) {
+            var names = output.list(MEMBER_NAMES_TAG, Codec.STRING);
+            memberNamesCache.forEach(names::add);
+        }
         if (!legacyItems.isEmpty()) {
             var list = output.list(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC);
             legacyItems.forEach(list::add);
@@ -174,6 +188,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         ownerCache = input.read(OWNER_TAG, UUIDUtil.CODEC).orElse(null);
         publicCache = input.getBooleanOr(PUBLIC_TAG, false);
         membersCache = Set.copyOf(input.listOrEmpty(MEMBERS_TAG, UUIDUtil.CODEC).stream().toList());
+        memberNamesCache = Set.copyOf(input.listOrEmpty(MEMBER_NAMES_TAG, Codec.STRING).stream().toList());
         legacyItems = input.listOrEmpty(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC).stream().toList();
     }
 
@@ -216,5 +231,6 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         output.discard(OWNER_TAG);
         output.discard(PUBLIC_TAG);
         output.discard(MEMBERS_TAG);
+        output.discard(MEMBER_NAMES_TAG);
     }
 }

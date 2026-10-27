@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "ENE",
+    "BSB",
+    "E E"
+  ],
+  "key": {
+    "E": "minecraft:echo_shard",
+    "N": "minecraft:netherite_block",
+    "B": "minecraft:dragon_breath",
+    "S": "minecraft:nether_star"
+  },
+  "result": {
+    "id": "quantumchest:quantum_upgrade_kit"
+  }
+}

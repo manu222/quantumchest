@@ -1,12 +1,17 @@
 package com.manuelaraujo.quantumchest.registry;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
+import com.manuelaraujo.quantumchest.block.ChestTier;
+import com.manuelaraujo.quantumchest.block.QuantumChestBlock;
 import com.manuelaraujo.quantumchest.platform.Services;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.BlockItemStateProperties;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class ModCreativeTabs {
@@ -17,7 +22,21 @@ public final class ModCreativeTabs {
             () -> Services.PLATFORM.creativeTab(
                     Component.translatable("itemGroup.quantumchest"),
                     () -> ModItems.QUANTUM_CHEST.get().getDefaultInstance(),
-                    () -> List.of(new ItemStack(ModItems.QUANTUM_CHEST.get()))));
+                    ModCreativeTabs::contents));
+
+    /** A chest of every tier (handy for testing) and the upgrade kits. */
+    private static List<ItemStack> contents() {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (ChestTier tier : ChestTier.values()) {
+            ItemStack chest = new ItemStack(ModItems.QUANTUM_CHEST.get());
+            if (tier != ChestTier.BASIC) {
+                chest.set(DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY.with(QuantumChestBlock.TIER, tier));
+            }
+            stacks.add(chest);
+        }
+        ModItems.KITS.forEach(kit -> stacks.add(new ItemStack(kit.get())));
+        return stacks;
+    }
 
     private ModCreativeTabs() {
     }
