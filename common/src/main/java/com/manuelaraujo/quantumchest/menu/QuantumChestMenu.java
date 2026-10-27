@@ -2,13 +2,18 @@ package com.manuelaraujo.quantumchest.menu;
 
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.block.entity.QuantumChestBlockEntity;
+import com.manuelaraujo.quantumchest.network.ChestSettingsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload;
 import com.manuelaraujo.quantumchest.network.SyncItemsPayload.ItemAmount;
+import com.manuelaraujo.quantumchest.network.SyncStatePayload;
 import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModMenus;
+import com.manuelaraujo.quantumchest.storage.AccessMode;
+import com.manuelaraujo.quantumchest.storage.CustomTab;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
@@ -43,14 +48,14 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     // Server side: what this player's client has been told so far
     private final Map<ItemKey, Long> sent = new HashMap<>();
     private int sentVersion = -1;
-    private ChestTier sentTier;
-    private String sentOwner;
+    private int sentStateVersion = -1;
 
-    // Client side: the chest contents as last received
+    // Client side: the chest contents and settings as last received
     private final Map<ItemKey, Long> clientItems = new LinkedHashMap<>();
-    private ChestTier clientTier = ChestTier.BASIC;
-    private String clientOwner = "";
+    private SyncStatePayload.Access clientAccess = new SyncStatePayload.Access(0, "", false, false, false, List.of());
+    private List<CustomTab> clientTabs = List.of();
     private int clientVersion;
+    private int clientStateVersion;
 
     /** Client constructor, used by the MenuType when the server opens the screen. */
     public QuantumChestMenu(int containerId, Inventory inventory) {
@@ -149,13 +154,23 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     public void broadcastChanges() {
         super.broadcastChanges();
         if (chest == null || !(player instanceof ServerPlayer serverPlayer)) return;
-
         QuantumStorage storage = chest.storage();
-        QuantumInventory inventory = storage.inventory();
-        ChestTier tier = chest.tier();
-        String owner = storage.ownerName();
+        syncState(storage, serverPlayer);
+        syncItems(storage.inventory(), serverPlayer);
+    }
+
+    private void syncState(QuantumStorage storage, ServerPlayer serverPlayer) {
+        if (storage.stateVersion() == sentStateVersion) return;
+        sentStateVersion = storage.stateVersion();
+        SyncStatePayload.Access access = new SyncStatePayload.Access(
+                chest.tier().ordinal(), storage.ownerName(), storage.isPublic(),
+                storage.canManage(serverPlayer), storage.canEditTabs(serverPlayer), storage.memberNames());
+        Services.NETWORK.sendToPlayer(serverPlayer, new SyncStatePayload(containerId, access, storage.tabs()));
+    }
+
+    private void syncItems(QuantumInventory inventory, ServerPlayer serverPlayer) {
         boolean first = sentVersion == -1;
-        if (!first && inventory.version() == sentVersion && tier == sentTier && owner.equals(sentOwner)) return;
+        if (!first && inventory.version() == sentVersion) return;
 
         List<ItemAmount> changes = new ArrayList<>();
         Map<ItemKey, Long> now = inventory.view();
@@ -173,17 +188,49 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         sent.clear();
         sent.putAll(now);
         sentVersion = inventory.version();
-        sentTier = tier;
-        sentOwner = owner;
 
         // Big chests go out in several packets so none of them gets too large
         int from = 0;
         do {
             int to = Math.min(from + MAX_ENTRIES_PER_PACKET, changes.size());
             Services.NETWORK.sendToPlayer(serverPlayer, new SyncItemsPayload(
-                    containerId, first && from == 0, tier.ordinal(), owner, List.copyOf(changes.subList(from, to))));
+                    containerId, first && from == 0, List.copyOf(changes.subList(from, to))));
             from = to;
         } while (from < changes.size());
+    }
+
+    // ---- server: settings and tabs -----------------------------------------
+
+    public void handleSettings(ChestSettingsPayload.Action action, String value, ServerPlayer player) {
+        if (chest == null || !stillValid(player)) return;
+        QuantumStorage storage = chest.storage();
+        if (!storage.canManage(player)) return;
+
+        switch (action) {
+            case MAKE_PUBLIC -> storage.setAccessMode(AccessMode.PUBLIC);
+            case MAKE_PRIVATE -> storage.setAccessMode(AccessMode.PRIVATE);
+            case ADD_MEMBER -> {
+                ServerPlayer target = player.level().getServer().getPlayerList().getPlayerByName(value.strip());
+                if (target == null) {
+                    player.sendSystemMessage(Component.translatable("message.quantumchest.member.not_online", value));
+                } else if (storage.isOwner(target)) {
+                    player.sendSystemMessage(Component.translatable("message.quantumchest.member.is_owner"));
+                } else if (!storage.addMember(target)) {
+                    player.sendSystemMessage(Component.translatable("message.quantumchest.member.full", QuantumStorage.MAX_MEMBERS));
+                }
+            }
+            case REMOVE_MEMBER -> storage.removeMember(value.strip());
+        }
+        chest.syncAccess(storage);
+        broadcastChanges();
+    }
+
+    public void handleSetTabs(List<CustomTab> tabs, ServerPlayer player) {
+        if (chest == null || !stillValid(player)) return;
+        QuantumStorage storage = chest.storage();
+        if (!storage.canEditTabs(player)) return;
+        storage.setTabs(tabs);
+        broadcastChanges();
     }
 
     // ---- client ------------------------------------------------------------
@@ -198,9 +245,13 @@ public class QuantumChestMenu extends AbstractContainerMenu {
                 clientItems.put(key, entry.count());
             }
         }
-        ChestTier[] tiers = ChestTier.values();
-        clientTier = tiers[Math.max(0, Math.min(payload.tier(), tiers.length - 1))];
-        clientOwner = payload.owner();
+        clientVersion++;
+    }
+
+    public void applyState(SyncStatePayload payload) {
+        clientAccess = payload.access();
+        clientTabs = List.copyOf(payload.tabs());
+        clientStateVersion++;
         clientVersion++;
     }
 
@@ -208,17 +259,26 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         return Collections.unmodifiableMap(clientItems);
     }
 
-    public ChestTier clientTier() {
-        return clientTier;
+    public SyncStatePayload.Access clientAccess() {
+        return clientAccess;
     }
 
-    public String clientOwner() {
-        return clientOwner;
+    public ChestTier clientTier() {
+        ChestTier[] tiers = ChestTier.values();
+        return tiers[Math.max(0, Math.min(clientAccess.tier(), tiers.length - 1))];
+    }
+
+    public List<CustomTab> clientTabs() {
+        return clientTabs;
     }
 
     /** Goes up every time new data arrives, so the screen knows when to rebuild its list. */
     public int clientVersion() {
         return clientVersion;
+    }
+
+    public int clientStateVersion() {
+        return clientStateVersion;
     }
 
     public long clientTotal() {

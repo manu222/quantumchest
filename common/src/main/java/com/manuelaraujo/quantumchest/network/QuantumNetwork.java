@@ -9,9 +9,23 @@ public final class QuantumNetwork {
     }
 
     public static void onClick(ClickPayload payload, ServerPlayer player) {
-        if (player == null || player.isSpectator()) return;
-        if (player.containerMenu instanceof QuantumChestMenu menu && menu.containerId == payload.containerId()) {
-            menu.handleClick(payload.action(), payload.stack(), player);
-        }
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleClick(payload.action(), payload.stack(), player);
+    }
+
+    public static void onSettings(ChestSettingsPayload payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleSettings(payload.action(), payload.value(), player);
+    }
+
+    public static void onSetTabs(SetTabsPayload payload, ServerPlayer player) {
+        QuantumChestMenu menu = openMenu(player, payload.containerId());
+        if (menu != null) menu.handleSetTabs(payload.tabs(), player);
+    }
+
+    private static QuantumChestMenu openMenu(ServerPlayer player, int containerId) {
+        if (player == null || player.isSpectator()) return null;
+        if (player.containerMenu instanceof QuantumChestMenu menu && menu.containerId == containerId) return menu;
+        return null;
     }
 }
