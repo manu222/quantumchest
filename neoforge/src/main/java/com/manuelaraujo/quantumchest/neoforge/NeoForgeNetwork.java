@@ -19,7 +19,7 @@ final class NeoForgeNetwork {
     }
 
     static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("6")
+        event.registrar("7")
                 // Client handlers are only ever called on the client, so the
                 // dedicated server never loads ClientHandlers
                 .playToClient(SyncItemsPayload.TYPE, SyncItemsPayload.STREAM_CODEC,

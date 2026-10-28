@@ -6,6 +6,7 @@ import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import com.manuelaraujo.quantumchest.storage.RefillRule;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
@@ -94,7 +95,8 @@ public final class Refiller {
         for (int slot : slots(inventory)) {
             if (extra <= 0) break;
             ItemStack stack = inventory.getItem(slot);
-            if (stack.isEmpty() || !stack.getComponentsPatch().isEmpty() || !rule.match().matches(stack)) continue;
+            if (stack.isEmpty() || !stack.getComponentsPatch().isEmpty() || !rule.match().matches(stack)
+                    || !storage.canHold(stack)) continue;
             long stored = storage.inventory().insert(stack, Math.min(extra, stack.getCount()), capacity);
             // The chest is full: what's left stays with the player
             if (stored <= 0) break;
@@ -112,11 +114,17 @@ public final class Refiller {
      */
     private static boolean give(ServerPlayer player, QuantumStorage storage, RefillRule rule, long missing) {
         QuantumInventory inventory = storage.inventory();
+        // Never hand out renamed or enchanted copies: those were put away on purpose.
+        // A rule for one item is a single lookup; only tags need to look through the chest
         List<ItemKey> candidates = new ArrayList<>();
-        for (ItemKey key : inventory.view().keySet()) {
-            ItemStack template = key.template();
-            // Never hand out renamed or enchanted copies: those were put away on purpose
-            if (template.getComponentsPatch().isEmpty() && rule.match().matches(template)) candidates.add(key);
+        if (rule.match().tag().isEmpty()) {
+            ItemKey plain = ItemKey.of(new ItemStack(BuiltInRegistries.ITEM.getValue(rule.match().item())));
+            if (inventory.count(plain) > 0) candidates.add(plain);
+        } else {
+            for (ItemKey key : inventory.view().keySet()) {
+                ItemStack template = key.template();
+                if (template.getComponentsPatch().isEmpty() && rule.match().matches(template)) candidates.add(key);
+            }
         }
         if (candidates.isEmpty()) return false;
         candidates.sort((a, b) -> Boolean.compare(carries(player, b), carries(player, a)));

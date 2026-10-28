@@ -87,9 +87,10 @@ final class ChestTabs {
         for (int i = 0; i < customTabs.size(); i++) {
             CustomTab custom = customTabs.get(i);
             ItemStack icon = custom.displayIcon();
+            Predicate<ItemStack> inTab = custom.matcher();
             result.add(new Tab("custom:" + i, Component.literal(custom.name()),
                     icon.isEmpty() ? new ItemStack(Items.NAME_TAG) : icon,
-                    key -> custom.matches(key.template()), i));
+                    key -> inTab.test(key.template()), i));
         }
         if (canAdd && customTabs.size() < CustomTab.MAX_TABS) {
             result.add(new Tab(ADD, Component.translatable("gui.quantumchest.tab.add"), ItemStack.EMPTY, key -> true, -1));

@@ -78,15 +78,30 @@ public class ChestCollapseEntity extends Entity {
         if (++age < DURATION) return;
         if (level() instanceof ServerLevel server) {
             server.playSound(null, blockPosition(), SoundEvents.CHORUS_FRUIT_TELEPORT, SoundSource.BLOCKS, 1.0f, 0.6f);
-            for (ItemStack drop : drops) {
-                ItemEntity item = new ItemEntity(server, getX(), getY() + 0.5, getZ(), drop);
-                item.setDeltaMovement(0, 0.18, 0);
-                item.setDefaultPickUpDelay();
-                server.addFreshEntity(item);
-            }
+            release(server);
+        }
+        discard();
+    }
+
+    /** Lets the drops go as item entities. After this the collapse carries nothing. */
+    private void release(ServerLevel server) {
+        for (ItemStack drop : drops) {
+            ItemEntity item = new ItemEntity(server, getX(), getY() + 0.5, getZ(), drop);
+            item.setDeltaMovement(0, 0.18, 0);
+            item.setDefaultPickUpDelay();
+            server.addFreshEntity(item);
         }
         drops.clear();
-        discard();
+    }
+
+    /**
+     * Killed before it finished (/kill, a mod that clears entities): the chest
+     * still drops. Unloading with the chunk keeps the drops in the save instead.
+     */
+    @Override
+    public void remove(RemovalReason reason) {
+        if (reason.shouldDestroy() && !drops.isEmpty() && level() instanceof ServerLevel server) release(server);
+        super.remove(reason);
     }
 
     @Override

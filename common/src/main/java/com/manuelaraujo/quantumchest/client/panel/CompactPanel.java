@@ -42,6 +42,17 @@ public final class CompactPanel extends Panel {
     private String query = "";
     private int offset;
 
+    // The list, the stored counts and the names are worked out again only when the
+    // contents, the settings or the search change, not several times every frame
+    private final Map<Identifier, String> names = new HashMap<>();
+    private Object cachedOptions;
+    private int cachedVersion = -1;
+    private int cachedStateVersion = -1;
+    private String cachedQuery;
+    private boolean cachedOnly;
+    private Map<Identifier, Long> cachedStored = Map.of();
+    private List<CompactOption> cachedRows = List.of();
+
     public CompactPanel(QuantumChestMenu menu, Host host) {
         super(menu, host);
         send(new UpgradeConfigPayloads.RequestCompactOptions(menu.containerId));
@@ -76,6 +87,29 @@ public final class CompactPanel extends Panel {
     // ---- data --------------------------------------------------------------
 
     private Map<Identifier, Long> storedCounts() {
+        refresh();
+        return cachedStored;
+    }
+
+    private List<CompactOption> rows() {
+        refresh();
+        return cachedRows;
+    }
+
+    private void refresh() {
+        List<CompactOption> all = menu.clientCompactOptions();
+        if (cachedVersion == menu.clientVersion() && cachedStateVersion == menu.clientStateVersion()
+                && cachedOptions == all && query.equals(cachedQuery) && cachedOnly == onlyStored) return;
+        cachedStored = countStored();
+        cachedRows = buildRows(all, cachedStored);
+        cachedVersion = menu.clientVersion();
+        cachedStateVersion = menu.clientStateVersion();
+        cachedOptions = all;
+        cachedQuery = query;
+        cachedOnly = onlyStored;
+    }
+
+    private Map<Identifier, Long> countStored() {
         Map<Identifier, Long> counts = new HashMap<>();
         for (Map.Entry<ItemKey, Long> entry : menu.clientItems().entrySet()) {
             counts.merge(BuiltInRegistries.ITEM.getKey(entry.getKey().template().getItem()), entry.getValue(), Long::sum);
@@ -91,10 +125,8 @@ public final class CompactPanel extends Panel {
     }
 
     /** Stored items first, then everything else; narrowed by the search and the "only stored" switch. */
-    private List<CompactOption> rows() {
-        List<CompactOption> all = menu.clientCompactOptions();
+    private List<CompactOption> buildRows(List<CompactOption> all, Map<Identifier, Long> stored) {
         if (all == null) return List.of();
-        Map<Identifier, Long> stored = storedCounts();
         String q = query.toLowerCase(Locale.ROOT).strip();
         List<CompactOption> here = new ArrayList<>();
         List<CompactOption> rest = new ArrayList<>();
@@ -107,7 +139,7 @@ public final class CompactPanel extends Panel {
         return here;
     }
 
-    private static boolean matchesQuery(CompactOption option, String q) {
+    private boolean matchesQuery(CompactOption option, String q) {
         return name(option.input()).toLowerCase(Locale.ROOT).contains(q)
                 || name(option.result()).toLowerCase(Locale.ROOT).contains(q)
                 || option.input().toString().contains(q);
@@ -117,8 +149,8 @@ public final class CompactPanel extends Panel {
         return new ItemStack(BuiltInRegistries.ITEM.getValue(id));
     }
 
-    private static String name(Identifier id) {
-        return stack(id).getHoverName().getString();
+    private String name(Identifier id) {
+        return names.computeIfAbsent(id, i -> stack(i).getHoverName().getString());
     }
 
     private int maxOffset(int count) {

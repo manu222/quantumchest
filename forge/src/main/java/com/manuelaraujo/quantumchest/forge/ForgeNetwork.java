@@ -17,7 +17,7 @@ import net.minecraftforge.network.ChannelBuilder;
 import net.minecraftforge.network.SimpleChannel;
 
 final class ForgeNetwork {
-    private static final int PROTOCOL_VERSION = 6;
+    private static final int PROTOCOL_VERSION = 7;
 
     // addMain runs the handlers on the game thread, not the network thread.
     // The clientbound handlers only ever run on the client.

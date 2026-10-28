@@ -126,6 +126,10 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     private boolean wasMouseDown;
     private int hoveredIndex = -1;
     private int ticks;
+    private int lastRebuild;
+    // From this many item types the grid refreshes every few ticks instead of on every change
+    private static final int BIG_CHEST = 2000;
+    private static final int BIG_CHEST_INTERVAL = 4;
 
     // Typing a number in a panel: where the box is and who gets the value
     private LongConsumer numberTarget;
@@ -315,9 +319,14 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             return;
         }
         String query = searchBox.getValue();
-        if (listDirty || menu.clientVersion() != seenVersion || !query.equals(seenQuery)) {
+        boolean inputChanged = listDirty || !query.equals(seenQuery);
+        // A busy chest changes every tick. Small ones follow at once, big ones a few times a second
+        boolean dataDue = menu.clientVersion() != seenVersion
+                && (menu.clientItems().size() < BIG_CHEST || ticks - lastRebuild >= BIG_CHEST_INTERVAL);
+        if (inputChanged || dataDue) {
             if (!query.equals(seenQuery)) scroll = 0;
             rebuildList(query);
+            lastRebuild = ticks;
         }
     }
 
@@ -334,7 +343,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         for (Map.Entry<ItemKey, Long> entry : menu.clientItems().entrySet()) {
             if (filter.test(entry.getKey())) list.add(Map.entry(entry.getKey(), entry.getValue()));
         }
-        list.sort(sortMode.comparator(reversed));
+        list.sort(sortMode.comparator(reversed, search));
         visible = list;
         seenVersion = menu.clientVersion();
         seenQuery = query;
@@ -1129,7 +1138,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             return;
         }
         Identifier id = itemId(stack);
-        if (!editItems.remove(id)) editItems.add(id);
+        if (!editItems.remove(id) && editItems.size() < CustomTab.MAX_ITEMS) editItems.add(id);
     }
 
     private void saveTab() {
@@ -1142,26 +1151,19 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
             String text = raw.startsWith("#") ? raw.substring(1) : raw;
             if (text.isEmpty()) continue;
             Identifier id = Identifier.tryParse(text.toLowerCase(Locale.ROOT));
-            if (id != null && !tags.contains(id)) tags.add(id);
+            if (id != null && !tags.contains(id) && tags.size() < CustomTab.MAX_TAGS) tags.add(id);
         }
         CustomTab tab = new CustomTab(name, editIcon, List.copyOf(editItems), tags);
-        List<CustomTab> updated = new ArrayList<>(menu.clientTabs());
-        if (editIndex >= 0 && editIndex < updated.size()) {
-            updated.set(editIndex, tab);
-            selectedTab = "custom:" + editIndex;
-        } else {
-            updated.add(tab);
-            selectedTab = "custom:" + (updated.size() - 1);
-        }
-        send(new SetTabsPayload(menu.containerId, updated));
+        int count = menu.clientTabs().size();
+        int index = editIndex >= 0 && editIndex < count ? editIndex : count;
+        selectedTab = "custom:" + index;
+        send(new SetTabsPayload(menu.containerId, index, Optional.of(tab)));
         setMode(Mode.NORMAL);
     }
 
     private void deleteTab() {
-        List<CustomTab> updated = new ArrayList<>(menu.clientTabs());
-        if (editIndex >= 0 && editIndex < updated.size()) {
-            updated.remove(editIndex);
-            send(new SetTabsPayload(menu.containerId, updated));
+        if (editIndex >= 0 && editIndex < menu.clientTabs().size()) {
+            send(new SetTabsPayload(menu.containerId, editIndex, Optional.empty()));
         }
         selectedTab = ChestTabs.ALL;
         setMode(Mode.NORMAL);

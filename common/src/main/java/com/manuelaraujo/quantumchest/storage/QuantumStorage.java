@@ -1,7 +1,9 @@
 package com.manuelaraujo.quantumchest.storage;
 
 import com.manuelaraujo.quantumchest.block.ChestTier;
+import com.manuelaraujo.quantumchest.item.QuantumChestItem;
 import com.manuelaraujo.quantumchest.item.QuantumTunnelItem;
+import com.manuelaraujo.quantumchest.registry.ModDataComponents;
 import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -29,6 +31,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 
 /**
@@ -38,6 +41,8 @@ import java.util.regex.Pattern;
  */
 public final class QuantumStorage {
     public static final int MAX_MEMBERS = 12;
+    /** Compactor and smelter rows a network can have switched on. Far more than anyone uses, but keeps saves and packets small. */
+    public static final int MAX_MACHINE_RULES = 2048;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Za-z0-9_]{3,16}");
 
     public static final Codec<QuantumStorage> CODEC = RecordCodecBuilder.create(i -> i.group(
@@ -98,6 +103,8 @@ public final class QuantumStorage {
     private long smeltedAt = -20;
     private Runnable onChange = () -> {
     };
+    // Follows entangle aliases, so a chest item can tell whether it belongs to this storage
+    private UnaryOperator<UUID> resolver = UnaryOperator.identity();
 
     QuantumStorage(UUID id) {
         this(id, Optional.empty(), "", AccessMode.PRIVATE, List.of(), ChestTier.BASIC, List.of(), List.of(), List.of(), List.of(),
@@ -115,7 +122,11 @@ public final class QuantumStorage {
         this.accessMode = accessMode;
         this.members.addAll(members);
         this.tier = tier;
-        this.tabs.addAll(tabs);
+        // Saves from older versions (or edited by hand) get the same limits as what clients send
+        for (CustomTab tab : tabs) {
+            if (this.tabs.size() >= CustomTab.MAX_TABS) break;
+            this.tabs.add(tab.sanitized());
+        }
         for (ItemStackWithSlot upgrade : upgrades) {
             if (upgrade.slot() >= 0 && upgrade.slot() < this.upgrades.getContainerSize()) {
                 this.upgrades.setItem(upgrade.slot(), upgrade.stack());
@@ -125,9 +136,13 @@ public final class QuantumStorage {
         this.anchors.addAll(anchors);
         this.filter = filter;
         this.voidRules = List.copyOf(voidRules);
-        for (CompactRule rule : compactRules) this.compactRules.put(rule.item(), rule);
+        for (CompactRule rule : compactRules) {
+            if (this.compactRules.size() < MAX_MACHINE_RULES) this.compactRules.put(rule.item(), rule);
+        }
         this.refillRules = List.copyOf(machines.refill());
-        for (CompactRule rule : machines.smelt()) this.smeltRules.put(rule.item(), rule);
+        for (CompactRule rule : machines.smelt()) {
+            if (this.smeltRules.size() < MAX_MACHINE_RULES) this.smeltRules.put(rule.item(), rule);
+        }
         this.fuels = List.copyOf(machines.fuels());
         this.fuelTicks = Math.max(0, machines.fuelTicks());
         this.cookProgress = Math.max(0, machines.cookProgress());
@@ -135,6 +150,39 @@ public final class QuantumStorage {
 
     void setOnChange(Runnable onChange) {
         this.onChange = onChange;
+    }
+
+    void setResolver(UnaryOperator<UUID> resolver) {
+        this.resolver = resolver;
+    }
+
+    /**
+     * False for a chest item that points at this very storage. Stored inside
+     * itself it could only be reached through another chest of the network,
+     * and taking it out again would give a second chest of the same storage
+     * without using the entangler. Terminals and other chests are fine.
+     */
+    public boolean canHold(ItemStack stack) {
+        if (!(stack.getItem() instanceof QuantumChestItem)) return true;
+        UUID points = stack.get(ModDataComponents.STORAGE_ID.get());
+        return points == null || !id.equals(resolver.apply(points));
+    }
+
+    /** Items or upgrades inside: what a chest broken in creative has to drop so nothing is lost. */
+    public boolean hasContents() {
+        return !inventory.isEmpty() || !installedUpgrades().isEmpty();
+    }
+
+    /**
+     * Nothing in it and nothing set up, and no chest placed: what's left of a
+     * chest that was crafted, placed and picked up again. Safe to forget,
+     * because a chest pointing at it just starts a fresh one.
+     */
+    boolean isUnused() {
+        return inventory.isEmpty() && installedUpgrades().isEmpty() && anchors.isEmpty() && tabs.isEmpty()
+                && members.isEmpty() && accessMode == AccessMode.PRIVATE && filter.entries().isEmpty()
+                && voidRules.isEmpty() && compactRules.isEmpty() && refillRules.isEmpty() && smeltRules.isEmpty()
+                && fuels.isEmpty() && fuelTicks == 0;
     }
 
     /** Call after touching the inventory so the world saves it. */
@@ -274,12 +322,22 @@ public final class QuantumStorage {
         return List.copyOf(tabs);
     }
 
-    public void setTabs(List<CustomTab> newTabs) {
-        tabs.clear();
-        for (CustomTab tab : newTabs) {
-            if (tabs.size() >= CustomTab.MAX_TABS) break;
-            tabs.add(tab.sanitized());
+    /** Replaces the tab at {@code index}, or adds it at the end if the index is past the last one. */
+    public void setTab(int index, CustomTab tab) {
+        CustomTab clean = tab.sanitized();
+        if (index >= 0 && index < tabs.size()) {
+            tabs.set(index, clean);
+        } else if (tabs.size() < CustomTab.MAX_TABS) {
+            tabs.add(clean);
+        } else {
+            return;
         }
+        stateChanged();
+    }
+
+    public void removeTab(int index) {
+        if (index < 0 || index >= tabs.size()) return;
+        tabs.remove(index);
         stateChanged();
     }
 
@@ -400,14 +458,19 @@ public final class QuantumStorage {
     }
 
     public void setCompactRule(CompactRule rule) {
-        if (rule.enabled() || rule.keep() > 0) {
-            compactRules.put(rule.item(), new CompactRule(rule.item(), rule.enabled(), Math.max(0, rule.keep())));
-        } else {
-            compactRules.remove(rule.item());
-        }
+        if (!putRule(compactRules, rule)) return;
         // Switching something on shows the result at once instead of on the next pass
         compactedAt = -20;
         stateChanged();
+    }
+
+    /** The rows switched on, for passes that only need those. */
+    public List<CompactRule> activeCompactRules() {
+        return compactRules.values().stream().filter(CompactRule::enabled).toList();
+    }
+
+    public List<CompactRule> activeSmeltRules() {
+        return smeltRules.values().stream().filter(CompactRule::enabled).toList();
     }
 
     /** How many of this item to leave loose, or -1 if the compactor shouldn't touch it. */
@@ -436,12 +499,22 @@ public final class QuantumStorage {
     }
 
     public void setSmeltRule(CompactRule rule) {
+        if (putRule(smeltRules, rule)) stateChanged();
+    }
+
+    /**
+     * One row of the compactor or the smelter, as a client sent it. Only real
+     * items, and no more than {@link #MAX_MACHINE_RULES} of them. Returns false
+     * if nothing changed.
+     */
+    private static boolean putRule(Map<Identifier, CompactRule> rules, CompactRule rule) {
+        if (!BuiltInRegistries.ITEM.containsKey(rule.item())) return false;
         if (rule.enabled() || rule.keep() > 0) {
-            smeltRules.put(rule.item(), new CompactRule(rule.item(), rule.enabled(), Math.max(0, rule.keep())));
-        } else {
-            smeltRules.remove(rule.item());
+            if (!rules.containsKey(rule.item()) && rules.size() >= MAX_MACHINE_RULES) return false;
+            rules.put(rule.item(), new CompactRule(rule.item(), rule.enabled(), Math.max(0, rule.keep())));
+            return true;
         }
-        stateChanged();
+        return rules.remove(rule.item()) != null;
     }
 
     /** How many of this item to leave unsmelted, or -1 if the smelter shouldn't touch it. */
@@ -539,7 +612,7 @@ public final class QuantumStorage {
      * capacity. Items a player puts in by hand don't come through here.
      */
     public Accepted acceptAutomatic(ItemStack template, long amount, boolean simulate) {
-        if (template.isEmpty() || amount <= 0 || !admits(template)) return Accepted.NONE;
+        if (template.isEmpty() || amount <= 0 || !admits(template) || !canHold(template)) return Accepted.NONE;
         long toStore = amount;
         long destroyed = 0;
         long limit = destroyLimit(template);
@@ -653,8 +726,12 @@ public final class QuantumStorage {
         anchors.addAll(other.anchors);
         other.anchors.clear();
         // The first chest's filter and destroyer rules win; compactor choices it doesn't have are added
-        other.compactRules.forEach(compactRules::putIfAbsent);
-        other.smeltRules.forEach(smeltRules::putIfAbsent);
+        other.compactRules.forEach((item, rule) -> {
+            if (compactRules.size() < MAX_MACHINE_RULES) compactRules.putIfAbsent(item, rule);
+        });
+        other.smeltRules.forEach((item, rule) -> {
+            if (smeltRules.size() < MAX_MACHINE_RULES) smeltRules.putIfAbsent(item, rule);
+        });
         if (refillRules.isEmpty()) refillRules = other.refillRules;
         if (fuels.isEmpty()) fuels = other.fuels;
         fuelTicks += other.fuelTicks;

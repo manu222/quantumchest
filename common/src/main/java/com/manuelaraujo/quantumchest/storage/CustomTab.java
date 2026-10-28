@@ -12,8 +12,13 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * A tab the players made themselves, like "Wood". It lists item types (by id,
@@ -23,8 +28,8 @@ import java.util.List;
 public record CustomTab(String name, ItemStack icon, List<Identifier> items, List<Identifier> tags) {
     public static final int MAX_TABS = 16;
     public static final int MAX_NAME = 24;
-    private static final int MAX_ITEMS = 256;
-    private static final int MAX_TAGS = 16;
+    public static final int MAX_ITEMS = 256;
+    public static final int MAX_TAGS = 16;
 
     public static final Codec<CustomTab> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.STRING.fieldOf("name").forGetter(CustomTab::name),
@@ -33,11 +38,12 @@ public record CustomTab(String name, ItemStack icon, List<Identifier> items, Lis
             Identifier.CODEC.listOf().optionalFieldOf("tags", List.of()).forGetter(CustomTab::tags)
     ).apply(i, CustomTab::new));
 
+    // Bounds a bit above the limits: the server trims anything over them, a bigger list is a broken or hostile client
     public static final StreamCodec<RegistryFriendlyByteBuf, CustomTab> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.STRING_UTF8, CustomTab::name,
+            ByteBufCodecs.stringUtf8(MAX_NAME * 4), CustomTab::name,
             ItemStack.OPTIONAL_STREAM_CODEC, CustomTab::icon,
-            Identifier.STREAM_CODEC.apply(ByteBufCodecs.list()), CustomTab::items,
-            Identifier.STREAM_CODEC.apply(ByteBufCodecs.list()), CustomTab::tags,
+            Identifier.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_ITEMS * 2)), CustomTab::items,
+            Identifier.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_TAGS * 2)), CustomTab::tags,
             CustomTab::new);
 
     public boolean matches(ItemStack stack) {
@@ -46,6 +52,24 @@ public record CustomTab(String name, ItemStack icon, List<Identifier> items, Lis
             if (stack.is(TagKey.create(Registries.ITEM, tag))) return true;
         }
         return false;
+    }
+
+    /**
+     * The same test as {@link #matches}, for checking many items in a row: the
+     * items as a set, the tags looked up once and the answer kept per item.
+     * Only valid for as long as the caller needs it; tags can change on reload.
+     */
+    public Predicate<ItemStack> matcher() {
+        Set<Identifier> ids = new HashSet<>(items);
+        List<TagKey<Item>> tagKeys = tags.stream().map(tag -> TagKey.create(Registries.ITEM, tag)).toList();
+        Map<Item, Boolean> answers = new HashMap<>();
+        return stack -> answers.computeIfAbsent(stack.getItem(), item -> {
+            if (ids.contains(BuiltInRegistries.ITEM.getKey(item))) return true;
+            for (TagKey<Item> tag : tagKeys) {
+                if (stack.is(tag)) return true;
+            }
+            return false;
+        });
     }
 
     /** What the icon shows: the chosen one, or the first item of the tab. */

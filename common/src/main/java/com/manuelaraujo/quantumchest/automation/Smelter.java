@@ -3,6 +3,7 @@ package com.manuelaraujo.quantumchest.automation;
 import com.manuelaraujo.quantumchest.QuantumConfig;
 import com.manuelaraujo.quantumchest.block.ChestTier;
 import com.manuelaraujo.quantumchest.platform.Services;
+import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.ItemMatch;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
@@ -158,16 +159,20 @@ public final class Smelter {
         if (smelted) storage.markChanged();
     }
 
-    /** What is switched on and stored above its "leave" amount, in the order the chest keeps it. */
+    /**
+     * What is switched on and stored above its "leave" amount, in the order the
+     * rows were switched on. Only plain items, and only the rules are walked,
+     * not the whole chest.
+     */
     private static List<Job> jobs(ServerLevel level, QuantumStorage storage) {
         List<Job> jobs = new ArrayList<>();
-        for (Map.Entry<ItemKey, Long> entry : storage.inventory().view().entrySet()) {
-            ItemStack template = entry.getKey().template();
-            if (!template.getComponentsPatch().isEmpty()) continue;
-            long keep = storage.smeltKeep(template.getItem());
-            if (keep < 0 || entry.getValue() <= keep) continue;
-            Rule rule = rule(level, template.getItem());
-            if (rule != null) jobs.add(new Job(entry.getKey(), rule, entry.getValue() - keep));
+        for (CompactRule setting : storage.activeSmeltRules()) {
+            Item item = BuiltInRegistries.ITEM.getValue(setting.item());
+            ItemKey key = ItemKey.of(new ItemStack(item));
+            long stored = storage.inventory().count(key);
+            if (stored <= setting.keep()) continue;
+            Rule rule = rule(level, item);
+            if (rule != null) jobs.add(new Job(key, rule, stored - setting.keep()));
         }
         return jobs;
     }
@@ -200,17 +205,31 @@ public final class Smelter {
     private static long burnOne(ServerLevel level, QuantumStorage storage) {
         QuantumInventory inventory = storage.inventory();
         for (ItemMatch fuel : storage.fuels()) {
-            for (ItemKey key : new ArrayList<>(inventory.view().keySet())) {
-                ItemStack template = key.template();
-                if (!template.getComponentsPatch().isEmpty() || !fuel.matches(template)) continue;
-                // Something that is also on the melt list (logs into charcoal) still burns if chosen as fuel
-                int burn = Services.PLATFORM.burnTime(template, level);
-                if (burn <= 0 || inventory.remove(key, 1) <= 0) continue;
-                ItemStack remainder = Services.PLATFORM.craftingRemainder(template);
-                if (!remainder.isEmpty()) inventory.insert(remainder, remainder.getCount(), Long.MAX_VALUE);
-                return burn;
-            }
+            ItemKey key = fuel.tag().isEmpty() ? plainKey(inventory, fuel) : firstMatching(inventory, fuel);
+            if (key == null) continue;
+            // Something that is also on the melt list (logs into charcoal) still burns if chosen as fuel
+            ItemStack template = key.template();
+            int burn = Services.PLATFORM.burnTime(template, level);
+            if (burn <= 0 || inventory.remove(key, 1) <= 0) continue;
+            ItemStack remainder = Services.PLATFORM.craftingRemainder(template);
+            if (!remainder.isEmpty()) inventory.insert(remainder, remainder.getCount(), Long.MAX_VALUE);
+            return burn;
         }
         return 0;
+    }
+
+    /** The plain stored copy of a fuel picked by item, or null. A straight lookup, no matter how big the chest. */
+    private static ItemKey plainKey(QuantumInventory inventory, ItemMatch fuel) {
+        ItemKey key = ItemKey.of(new ItemStack(BuiltInRegistries.ITEM.getValue(fuel.item())));
+        return inventory.count(key) > 0 ? key : null;
+    }
+
+    /** The first plain stored item of a fuel picked by tag, or null. */
+    private static ItemKey firstMatching(QuantumInventory inventory, ItemMatch fuel) {
+        for (ItemKey key : inventory.view().keySet()) {
+            ItemStack template = key.template();
+            if (template.getComponentsPatch().isEmpty() && fuel.matches(template)) return key;
+        }
+        return null;
     }
 }

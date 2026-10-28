@@ -1,5 +1,8 @@
 package com.manuelaraujo.quantumchest.storage;
 
+import io.netty.buffer.Unpooled;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -10,6 +13,8 @@ import net.minecraft.world.item.ItemStack;
 public final class ItemKey {
     private final ItemStack template;
     private final int hash;
+    // Bytes the template takes in a packet, worked out the first time it's asked for
+    private int encodedSize = -1;
 
     private ItemKey(ItemStack template) {
         this.template = template;
@@ -23,6 +28,27 @@ public final class ItemKey {
     /** A fresh stack of this item. The caller is free to modify it. */
     public ItemStack toStack(int count) {
         return template.copyWithCount(count);
+    }
+
+    /**
+     * How many bytes this item takes in a packet. Most are a handful, but a
+     * shulker box full of books can be huge, and the chest sync has to split
+     * its packets before they reach the size limit.
+     */
+    public int encodedSize(RegistryAccess registries) {
+        if (encodedSize < 0) {
+            RegistryFriendlyByteBuf buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), registries);
+            try {
+                ItemStack.STREAM_CODEC.encode(buffer, template);
+                encodedSize = buffer.writerIndex();
+            } catch (RuntimeException e) {
+                // Can't be measured: count it as big, the real encode will report the problem
+                encodedSize = 64 * 1024;
+            } finally {
+                buffer.release();
+            }
+        }
+        return encodedSize;
     }
 
     public int maxStackSize() {

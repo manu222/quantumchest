@@ -9,6 +9,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * One face of a chest as hoppers and pipes see it. The chest has no slots, so
@@ -147,8 +148,9 @@ public final class ChestPort {
         CustomTab tab = storage.tabNamed(chest.exportTab(side));
         List<ItemKey> keys = new ArrayList<>();
         if (tab != null) {
+            Predicate<ItemStack> inTab = tab.matcher();
             for (ItemKey key : storage.inventory().view().keySet()) {
-                if (tab.matches(key.template())) keys.add(key);
+                if (inTab.test(key.template())) keys.add(key);
             }
         }
         offered = List.copyOf(keys);

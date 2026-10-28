@@ -41,8 +41,10 @@ public final class ForgeTransferHelper implements ITransferHelper {
         return moved;
     }
 
-    // Our handlers read the face settings live, so cached ones already see the change
+    // Our handlers read the face settings live, so a pipe that already holds one sees the
+    // change. A pipe that found a closed face holds nothing: a neighbour update makes it look again
     @Override
     public void invalidate(ServerLevel level, BlockPos pos) {
+        level.updateNeighborsAt(pos, level.getBlockState(pos).getBlock());
     }
 }

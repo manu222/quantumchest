@@ -1,5 +1,6 @@
 package com.manuelaraujo.quantumchest.automation;
 
+import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.QuantumInventory;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
@@ -52,23 +53,27 @@ public final class Compactor {
         }
     }
 
-    /** One pass over the storage, for the items the player switched on. */
+    /**
+     * One pass over the items the player switched on. Goes through the rules,
+     * not the whole chest, so a chest with thousands of types costs the same.
+     * Only plain items: a renamed or enchanted copy must stay as it is.
+     */
     public static void run(ServerLevel level, QuantumStorage storage) {
-        if (storage.compactRules().isEmpty()) return;
+        List<CompactRule> active = storage.activeCompactRules();
+        if (active.isEmpty()) return;
         checkCache(level);
         QuantumInventory inventory = storage.inventory();
         boolean changed = false;
-        for (Map.Entry<ItemKey, Long> entry : new ArrayList<>(inventory.view().entrySet())) {
-            ItemStack template = entry.getKey().template();
-            // Only plain items: a renamed or enchanted copy must stay as it is
-            if (!template.getComponentsPatch().isEmpty()) continue;
-            long keep = storage.compactKeep(template.getItem());
-            if (keep < 0) continue;
-            Rule rule = rule(level, template.getItem());
+        for (CompactRule setting : active) {
+            Item item = BuiltInRegistries.ITEM.getValue(setting.item());
+            ItemKey key = ItemKey.of(new ItemStack(item));
+            long stored = inventory.count(key);
+            if (stored <= setting.keep()) continue;
+            Rule rule = rule(level, item);
             if (rule == null) continue;
-            long blocks = (entry.getValue() - keep) / rule.ratio();
+            long blocks = (stored - setting.keep()) / rule.ratio();
             if (blocks <= 0) continue;
-            inventory.remove(entry.getKey(), blocks * rule.ratio());
+            inventory.remove(key, blocks * rule.ratio());
             // The total only goes down, so this always fits
             inventory.insert(new ItemStack(rule.result()), blocks, Long.MAX_VALUE);
             changed = true;

@@ -7,16 +7,21 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
-import java.util.List;
+import java.util.Optional;
 
-/** Client to server: the new list of custom tabs after creating, editing or deleting one. */
-public record SetTabsPayload(int containerId, List<CustomTab> tabs) implements CustomPacketPayload {
+/**
+ * Client to server: one custom tab was created, edited or deleted. Only that
+ * tab travels, so a chest full of big tabs never goes over the packet limit.
+ * {@code index} past the last tab adds a new one; an empty {@code tab} deletes.
+ */
+public record SetTabsPayload(int containerId, int index, Optional<CustomTab> tab) implements CustomPacketPayload {
 
-    public static final Type<SetTabsPayload> TYPE = new Type<>(QuantumChest.id("set_tabs"));
+    public static final Type<SetTabsPayload> TYPE = new Type<>(QuantumChest.id("set_tab"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, SetTabsPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, SetTabsPayload::containerId,
-            CustomTab.STREAM_CODEC.apply(ByteBufCodecs.list(CustomTab.MAX_TABS)), SetTabsPayload::tabs,
+            ByteBufCodecs.VAR_INT, SetTabsPayload::index,
+            ByteBufCodecs.optional(CustomTab.STREAM_CODEC), SetTabsPayload::tab,
             SetTabsPayload::new);
 
     @Override

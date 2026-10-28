@@ -154,7 +154,8 @@ public class QuantumChestBlock extends BaseEntityBlock {
                 && level.getBlockEntity(pos) instanceof QuantumChestBlockEntity chest) {
             QuantumStorage storage = chest.existingStorage();
             List<ItemStack> drops = new ArrayList<>();
-            if (storage != null && !storage.inventory().isEmpty()) {
+            // Like a shulker box, an empty chest just goes; one with items or upgrades drops
+            if (storage != null && storage.hasContents()) {
                 ItemStack drop = new ItemStack(this);
                 drop.applyComponents(chest.collectComponents());
                 drop.set(DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY.with(TIER, state.getValue(TIER)));

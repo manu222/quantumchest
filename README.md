@@ -8,8 +8,8 @@ Built for **Minecraft 26.2** on both **Forge** and **NeoForge** from the same co
 
 - **One grid for every item.** Scroll, search by name, mod (`@create`) or tag (`#c:ores`), sort by amount, name or mod.
 - **Tabs.** The creative tabs are there out of the box, and you can make your own from the chest screen (pick items, type tags, choose an icon).
-- **Breaking the chest keeps everything.** The contents live with the world, not the block, so a broken chest drops an item that brings it all back.
-- **Owner and guests.** Chests are private by default. Add friends by name or make the chest public.
+- **Breaking the chest keeps everything.** The contents live with the world, not the block, so a broken chest drops an item that brings it all back. The item doesn't burn, and if it's lost anyway an operator can get it back with `/quantumchest give`.
+- **Owner and guests.** Chests are private by default. Add friends by name or make the chest public. Guests can use the chest, but only the owner fits or takes out upgrades.
 - **Input filter.** A whitelist or blacklist for whatever arrives on its own (hoppers, pipes, magnet). By hand you can always put anything in.
 - **Hoppers and pipes** work with every face, like with a normal chest. Pulling items out needs the I/O upgrade.
 

@@ -46,16 +46,36 @@ public final class QuantumStorageData extends SavedData {
     }
 
     private QuantumStorageData(List<QuantumStorage> saved, Map<UUID, UUID> savedAliases) {
+        int forgotten = 0;
         for (QuantumStorage storage : saved) {
+            // Chests that were crafted, placed and picked up again leave an empty storage behind.
+            // Nothing in it, nothing set up and no chest placed: drop it so the file doesn't grow forever
+            if (storage.isUnused()) {
+                forgotten++;
+                continue;
+            }
             track(storage);
         }
         aliases.putAll(savedAliases);
+        if (forgotten > 0) {
+            QuantumChest.LOG.info("Forgot {} empty, unused chest storages", forgotten);
+            setDirty();
+        }
     }
 
+    // Looked up by every chest every tick, so the last one is kept at hand
+    private static volatile MinecraftServer cachedServer;
+    private static volatile QuantumStorageData cached;
+
     public static QuantumStorageData get(MinecraftServer server) {
+        QuantumStorageData data = cached;
+        if (data != null && cachedServer == server) return data;
         // Everything that needs the settings goes through here first, so this is where they load
         QuantumConfig.ensureLoaded(server);
-        return server.overworld().getDataStorage().computeIfAbsent(TYPE);
+        data = server.overworld().getDataStorage().computeIfAbsent(TYPE);
+        cached = data;
+        cachedServer = server;
+        return data;
     }
 
     /** The storage with that id, following aliases. Null if there is none. */
@@ -118,6 +138,7 @@ public final class QuantumStorageData extends SavedData {
 
     private void track(QuantumStorage storage) {
         storage.setOnChange(this::setDirty);
+        storage.setResolver(this::resolve);
         storages.put(storage.id(), storage);
     }
 }

@@ -8,17 +8,14 @@ import java.util.Map;
 
 /** How the grid is ordered. */
 public enum SortMode {
-    AMOUNT("#", Comparator.comparingLong(Map.Entry::getValue)),
-    NAME("Aa", Comparator.comparing(e -> name(e.getKey()))),
-    MOD("@", Comparator.<Map.Entry<ItemKey, Long>, String>comparing(e -> namespace(e.getKey()))
-            .thenComparing(e -> name(e.getKey())));
+    AMOUNT("#"),
+    NAME("Aa"),
+    MOD("@");
 
     private final String icon;
-    private final Comparator<Map.Entry<ItemKey, Long>> comparator;
 
-    SortMode(String icon, Comparator<Map.Entry<ItemKey, Long>> comparator) {
+    SortMode(String icon) {
         this.icon = icon;
-        this.comparator = comparator;
     }
 
     public String icon() {
@@ -31,10 +28,16 @@ public enum SortMode {
 
     /**
      * Amount sorts biggest first by default, names A to Z. {@code reversed}
-     * flips whichever that is.
+     * flips whichever that is. Names come from {@code names}, which keeps them:
+     * building a display name for every comparison makes big chests stutter.
      */
-    public Comparator<Map.Entry<ItemKey, Long>> comparator(boolean reversed) {
-        Comparator<Map.Entry<ItemKey, Long>> natural = this == AMOUNT ? comparator.reversed() : comparator;
+    public Comparator<Map.Entry<ItemKey, Long>> comparator(boolean reversed, ItemSearch names) {
+        Comparator<Map.Entry<ItemKey, Long>> natural = switch (this) {
+            case AMOUNT -> Comparator.<Map.Entry<ItemKey, Long>>comparingLong(Map.Entry::getValue).reversed();
+            case NAME -> Comparator.comparing(e -> names.name(e.getKey()));
+            case MOD -> Comparator.<Map.Entry<ItemKey, Long>, String>comparing(e -> names.namespace(e.getKey()))
+                    .thenComparing(e -> names.name(e.getKey()));
+        };
         return reversed ? natural.reversed() : natural;
     }
 

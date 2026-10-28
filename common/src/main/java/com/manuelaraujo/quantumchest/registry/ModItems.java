@@ -25,7 +25,9 @@ public final class ModItems {
             key -> new QuantumChestItem(ModBlocks.QUANTUM_CHEST.get(), new Item.Properties()
                     .setId(key)
                     .useBlockDescriptionPrefix()
-                    .stacksTo(1)));
+                    .stacksTo(1)
+                    // It may carry a whole base: lava and fire shouldn't take it
+                    .fireResistant()));
 
     public static final RegistryEntry<Item, TierUpgradeItem> REINFORCED_KIT = kit("reinforced_upgrade_kit", ChestTier.REINFORCED);
     public static final RegistryEntry<Item, TierUpgradeItem> ADVANCED_KIT = kit("advanced_upgrade_kit", ChestTier.ADVANCED);

@@ -93,6 +93,10 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     /** Shift on the result crafts at most this many times, so one click can't stall the server. */
     private static final int MAX_SHIFT_CRAFTS = 64 * 36;
     private static final int MAX_ENTRIES_PER_PACKET = 512;
+    // Clients refuse packets over 1 MiB. Big item data (full shulker boxes, books) can add up fast
+    private static final int MAX_BYTES_PER_PACKET = 512 * 1024;
+    // The compactor and smelter lists go out in one packet each
+    private static final int MAX_OPTIONS = 8192;
 
     // Server side: what is being viewed. Null on the client.
     private final StorageHost host;
@@ -187,15 +191,18 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             return getContainerSlot() < activeUpgradeSlots();
         }
 
-        // One of each upgrade per chest: a second one would do nothing
+        // One of each upgrade per chest: a second one would do nothing.
+        // Only the owner (and operators) fit or take upgrades: in a public chest
+        // or for a guest the slots are locked, or anyone could walk off with them
         @Override
         public boolean mayPlace(ItemStack stack) {
-            return isActive() && stack.getItem() instanceof ChestUpgrade upgrade && tier().atLeast(upgrade.minTier())
+            return isActive() && manages() && stack.getItem() instanceof ChestUpgrade upgrade && tier().atLeast(upgrade.minTier())
                     && !alreadyInstalled(stack, this);
         }
 
         @Override
         public boolean mayPickup(Player player) {
+            if (!manages()) return false;
             QuantumStorage storage = host != null ? host.storage() : null;
             if (storage == null || storage.canRemoveUpgrade(getItem())) return true;
             player.sendOverlayMessage(Component.translatable("message.quantumchest.tunnel.in_use"));
@@ -216,6 +223,13 @@ public class QuantumChestMenu extends AbstractContainerMenu {
                 ChestNetwork.invalidateFaces(serverPlayer.level().getServer(), storage);
             }
         }
+    }
+
+    /** The player looking at this screen may change the upgrades. Works on both sides. */
+    private boolean manages() {
+        if (host == null) return clientAccess.canManage();
+        QuantumStorage storage = host.storage();
+        return storage != null && storage.canManage(player);
     }
 
     private boolean alreadyInstalled(ItemStack stack, Slot except) {
@@ -265,6 +279,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             return ItemStack.EMPTY;
         }
         QuantumStorage storage = host.storage();
+        if (!storage.canHold(stack)) return ItemStack.EMPTY;
         long stored = storage.inventory().insert(stack, storage.tier().capacity());
         if (stored > 0) {
             stack.shrink((int) stored);
@@ -467,7 +482,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private void returnToChest(Player player, ItemStack stack) {
         if (stack.isEmpty()) return;
         QuantumStorage storage = host != null ? host.storage() : null;
-        if (storage != null) {
+        if (storage != null && storage.canHold(stack)) {
             long stored = storage.inventory().insert(stack, stack.getCount(), storage.tier().capacity());
             stack.shrink((int) stored);
             if (stored > 0) storage.markChanged();
@@ -539,13 +554,13 @@ public class QuantumChestMenu extends AbstractContainerMenu {
                 }
             }
             case INSERT_CARRIED -> {
-                if (carried.isEmpty()) return;
+                if (carried.isEmpty() || !storage.canHold(carried)) return;
                 long stored = inventory.insert(carried, capacity);
                 carried.shrink((int) stored);
                 setCarried(carried);
             }
             case INSERT_ONE -> {
-                if (carried.isEmpty()) return;
+                if (carried.isEmpty() || !storage.canHold(carried)) return;
                 long stored = inventory.insert(carried, 1, capacity);
                 carried.shrink((int) stored);
                 setCarried(carried);
@@ -599,26 +614,39 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         if (!first && inventory.version() == sentVersion) return;
 
         List<ItemAmount> changes = new ArrayList<>();
+        List<Integer> sizes = new ArrayList<>();
+        var registries = serverPlayer.registryAccess();
         Map<ItemKey, Long> now = inventory.view();
         now.forEach((key, count) -> {
             Long before = sent.get(key);
             if (before == null || before.longValue() != count) {
                 changes.add(new ItemAmount(key.template(), count));
+                sizes.add(key.encodedSize(registries));
             }
         });
         for (ItemKey key : sent.keySet()) {
             if (!now.containsKey(key)) {
                 changes.add(new ItemAmount(key.template(), 0));
+                sizes.add(key.encodedSize(registries));
             }
         }
         sent.clear();
         sent.putAll(now);
         sentVersion = inventory.version();
 
-        // Big chests go out in several packets so none of them gets too large
+        // Big chests go out in several packets so none of them gets too large:
+        // at most 512 types each, and well under the size limit even with heavy item data
         int from = 0;
         do {
-            int to = Math.min(from + MAX_ENTRIES_PER_PACKET, changes.size());
+            int to = from;
+            int bytes = 0;
+            while (to < changes.size() && to - from < MAX_ENTRIES_PER_PACKET) {
+                // The item plus its count
+                int size = sizes.get(to) + 10;
+                if (to > from && bytes + size > MAX_BYTES_PER_PACKET) break;
+                bytes += size;
+                to++;
+            }
             Services.NETWORK.sendToPlayer(serverPlayer, new SyncItemsPayload(
                     containerId, first && from == 0, List.copyOf(changes.subList(from, to))));
             from = to;
@@ -652,11 +680,16 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         broadcastChanges();
     }
 
-    public void handleSetTabs(List<CustomTab> tabs, ServerPlayer player) {
+    /** One tab saved from the editor, or deleted when {@code tab} is null. */
+    public void handleSetTab(int index, CustomTab tab, ServerPlayer player) {
         if (host == null || !stillValid(player)) return;
         QuantumStorage storage = host.storage();
         if (!storage.canEditTabs(player)) return;
-        storage.setTabs(tabs);
+        if (tab == null) {
+            storage.removeTab(index);
+        } else {
+            storage.setTab(index, tab);
+        }
         broadcastChanges();
     }
 
@@ -711,7 +744,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
 
     public void sendCompactOptions(ServerPlayer player) {
         if (host == null || !stillValid(player) || !(player.level() instanceof ServerLevel level)) return;
-        Services.NETWORK.sendToPlayer(player, new UpgradeConfigPayloads.CompactOptions(containerId, Compactor.options(level)));
+        Services.NETWORK.sendToPlayer(player, new UpgradeConfigPayloads.CompactOptions(containerId, capped(Compactor.options(level))));
     }
 
     // ---- server: crafting, auto-refill and smelter ------------------------------
@@ -740,7 +773,12 @@ public class QuantumChestMenu extends AbstractContainerMenu {
 
     public void sendSmeltOptions(ServerPlayer player) {
         if (host == null || !stillValid(player) || !(player.level() instanceof ServerLevel level)) return;
-        Services.NETWORK.sendToPlayer(player, new MachinePayloads.SmeltOptions(containerId, Smelter.options(level)));
+        Services.NETWORK.sendToPlayer(player, new MachinePayloads.SmeltOptions(containerId, capped(Smelter.options(level))));
+    }
+
+    /** Huge modpacks could list more than one packet takes. The first ones are vanilla's, the rest by mod. */
+    private static <T> List<T> capped(List<T> options) {
+        return options.size() <= MAX_OPTIONS ? options : options.subList(0, MAX_OPTIONS);
     }
 
     /** What the chest does with turned away items that can't leave. Same rules as the faces. */
@@ -851,9 +889,17 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         return clientStateVersion;
     }
 
+    // Drawn every frame, so it's only added up again when the contents change
+    private long clientTotal;
+    private int clientTotalVersion = -1;
+
     public long clientTotal() {
-        long total = 0;
-        for (long count : clientItems.values()) total += count;
-        return total;
+        if (clientTotalVersion != clientVersion) {
+            long total = 0;
+            for (long count : clientItems.values()) total += count;
+            clientTotal = total;
+            clientTotalVersion = clientVersion;
+        }
+        return clientTotal;
     }
 }

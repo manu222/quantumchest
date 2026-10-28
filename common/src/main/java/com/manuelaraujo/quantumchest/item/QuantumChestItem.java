@@ -10,9 +10,9 @@ import net.minecraft.world.item.component.BlockItemStateProperties;
 import net.minecraft.world.level.block.Block;
 
 /**
- * The chest as an item. It only carries the storage id: if the item burns or
- * despawns, the contents are still in the world data and an operator can get
- * the chest back with /quantumchest give.
+ * The chest as an item. It only carries the storage id. It doesn't burn, and if
+ * it despawns or falls into the void the contents are still in the world data:
+ * an operator can get the chest back with /quantumchest give.
  */
 public class QuantumChestItem extends BlockItem {
 

@@ -39,7 +39,7 @@ public final class QuantumConfig {
     private static int[] io = DEFAULT_IO.clone();
     private static int[] smelt = DEFAULT_SMELT.clone();
     private static int terminalRange = DEFAULT_TERMINAL_RANGE;
-    private static MinecraftServer loadedFor;
+    private static volatile MinecraftServer loadedFor;
 
     private QuantumConfig() {
     }
@@ -69,10 +69,15 @@ public final class QuantumConfig {
     }
 
     /** Reads the file once per server start. Cheap to call often. */
-    public static synchronized void ensureLoaded(MinecraftServer server) {
+    public static void ensureLoaded(MinecraftServer server) {
         if (loadedFor == server) return;
-        loadedFor = server;
+        loadSync(server);
+    }
+
+    private static synchronized void loadSync(MinecraftServer server) {
+        if (loadedFor == server) return;
         load(server.getServerDirectory().resolve("config").resolve(QuantumChest.MOD_ID + ".json"));
+        loadedFor = server;
     }
 
     private static void load(Path file) {

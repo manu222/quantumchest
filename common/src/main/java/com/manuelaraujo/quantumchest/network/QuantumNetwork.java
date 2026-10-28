@@ -20,7 +20,7 @@ public final class QuantumNetwork {
 
     public static void onSetTabs(SetTabsPayload payload, ServerPlayer player) {
         QuantumChestMenu menu = openMenu(player, payload.containerId());
-        if (menu != null) menu.handleSetTabs(payload.tabs(), player);
+        if (menu != null) menu.handleSetTab(payload.index(), payload.tab().orElse(null), player);
     }
 
     public static void onSetFace(SetFacePayload payload, ServerPlayer player) {

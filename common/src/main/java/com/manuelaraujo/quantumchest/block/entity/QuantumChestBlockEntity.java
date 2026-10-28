@@ -43,6 +43,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
@@ -413,20 +415,7 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         if (storageId != null) {
             output.store(STORAGE_TAG, UUIDUtil.CODEC, storageId);
         }
-        if (ownerCache != null) {
-            output.store(OWNER_TAG, UUIDUtil.CODEC, ownerCache);
-        }
-        if (publicCache) {
-            output.putBoolean(PUBLIC_TAG, true);
-        }
-        if (!membersCache.isEmpty()) {
-            var members = output.list(MEMBERS_TAG, UUIDUtil.CODEC);
-            membersCache.forEach(members::add);
-        }
-        if (!memberNamesCache.isEmpty()) {
-            var names = output.list(MEMBER_NAMES_TAG, Codec.STRING);
-            memberNamesCache.forEach(names::add);
-        }
+        saveAccess(output);
         if (!legacyItems.isEmpty()) {
             var list = output.list(LEGACY_ITEMS_TAG, QuantumInventory.Entry.CODEC);
             legacyItems.forEach(list::add);
@@ -445,6 +434,24 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         }
         if (!magnetOn) output.putBoolean(MAGNET_OFF_TAG, true);
         if (magnetRange > 0) output.putInt(MAGNET_RANGE_TAG, magnetRange);
+    }
+
+    /** Who may use the chest: the only part clients get, so they know whether they may break it. */
+    private void saveAccess(ValueOutput output) {
+        if (ownerCache != null) {
+            output.store(OWNER_TAG, UUIDUtil.CODEC, ownerCache);
+        }
+        if (publicCache) {
+            output.putBoolean(PUBLIC_TAG, true);
+        }
+        if (!membersCache.isEmpty()) {
+            var members = output.list(MEMBERS_TAG, UUIDUtil.CODEC);
+            membersCache.forEach(members::add);
+        }
+        if (!memberNamesCache.isEmpty()) {
+            var names = output.list(MEMBER_NAMES_TAG, Codec.STRING);
+            memberNamesCache.forEach(names::add);
+        }
     }
 
     @Override
@@ -475,9 +482,13 @@ public class QuantumChestBlockEntity extends BlockEntity implements MenuProvider
         return ClientboundBlockEntityDataPacket.create(this);
     }
 
+    // Only the access lists. The storage id, the faces and whatever waits in the
+    // reject buffer stay on the server; the screen gets what it shows by packet
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        return saveWithoutMetadata(registries);
+        TagValueOutput output = TagValueOutput.createWithContext(ProblemReporter.DISCARDING, registries);
+        saveAccess(output);
+        return output.buildResult();
     }
 
     // The three methods below move the storage id between the block and its item:

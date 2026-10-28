@@ -25,6 +25,18 @@ import java.util.function.Predicate;
 public final class ItemSearch {
     // Tooltips are slow to build, so keep them while the screen is open
     private final Map<ItemKey, String> tooltipCache = new HashMap<>();
+    // Same for names and mod ids: the list is sorted and searched by them every time it changes
+    private final Map<ItemKey, String> nameCache = new HashMap<>();
+    private final Map<ItemKey, String> namespaceCache = new HashMap<>();
+
+    /** Lower case display name, kept while the screen is open. */
+    public String name(ItemKey key) {
+        return nameCache.computeIfAbsent(key, SortMode::name);
+    }
+
+    public String namespace(ItemKey key) {
+        return namespaceCache.computeIfAbsent(key, SortMode::namespace);
+    }
 
     public Predicate<ItemKey> parse(String query) {
         List<Predicate<ItemKey>> parts = new ArrayList<>();
@@ -33,13 +45,13 @@ public final class ItemSearch {
             char prefix = raw.charAt(0);
             String text = raw.substring(1);
             if (prefix == '@') {
-                parts.add(key -> SortMode.namespace(key).contains(text));
+                parts.add(key -> namespace(key).contains(text));
             } else if (prefix == '#') {
                 parts.add(key -> key.template().tags().anyMatch(tag -> tag.location().toString().contains(text)));
             } else if (prefix == '$') {
                 parts.add(key -> tooltip(key).contains(text));
             } else {
-                parts.add(key -> SortMode.name(key).contains(raw));
+                parts.add(key -> name(key).contains(raw));
             }
         }
         return key -> {

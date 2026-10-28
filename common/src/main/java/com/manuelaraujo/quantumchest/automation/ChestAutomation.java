@@ -20,6 +20,7 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * What the upgrades do every few ticks, run from each chest's ticker. The
@@ -116,9 +117,11 @@ public final class ChestAutomation {
                                Direction side, BlockPos target, int budget) {
         CustomTab tab = storage.tabNamed(chest.exportTab(side));
         if (tab == null) return;
+        // Big chests have thousands of types: test each kind of item once, not once per variant
+        Predicate<ItemStack> inTab = tab.matcher();
         List<ItemKey> keys = new ArrayList<>();
         for (ItemKey key : storage.inventory().view().keySet()) {
-            if (tab.matches(key.template())) keys.add(key);
+            if (inTab.test(key.template())) keys.add(key);
         }
         int left = budget;
         boolean changed = false;

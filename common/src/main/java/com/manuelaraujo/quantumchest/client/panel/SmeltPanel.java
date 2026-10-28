@@ -59,6 +59,19 @@ public final class SmeltPanel extends Panel {
     private String query = "";
     private int offset;
 
+    // The list, the stored counts and the names are worked out again only when the
+    // contents, the settings or the search change, not several times every frame
+    private final Map<Identifier, String> names = new HashMap<>();
+    private Object cachedOptions;
+    private int cachedVersion = -1;
+    private int cachedStateVersion = -1;
+    private String cachedQuery;
+    private boolean cachedOnly;
+    private Map<Identifier, Long> cachedStored = Map.of();
+    private List<SmeltOption> cachedRows = List.of();
+    private long cachedFuel;
+    private long cachedPending;
+
     public SmeltPanel(QuantumChestMenu menu, Host host) {
         super(menu, host);
         send(new MachinePayloads.RequestSmeltOptions(menu.containerId));
@@ -93,6 +106,43 @@ public final class SmeltPanel extends Panel {
     // ---- data --------------------------------------------------------------
 
     private Map<Identifier, Long> storedCounts() {
+        refresh();
+        return cachedStored;
+    }
+
+    private List<SmeltOption> rows() {
+        refresh();
+        return cachedRows;
+    }
+
+    /** About how many items the chosen fuel in the chest, plus the heat left, can still melt. */
+    private long fuelInChest() {
+        refresh();
+        return cachedFuel;
+    }
+
+    /** Items switched on and stored above their "leave" amount: what is still to smelt. */
+    private long pending() {
+        refresh();
+        return cachedPending;
+    }
+
+    private void refresh() {
+        List<SmeltOption> all = menu.clientSmeltOptions();
+        if (cachedVersion == menu.clientVersion() && cachedStateVersion == menu.clientStateVersion()
+                && cachedOptions == all && query.equals(cachedQuery) && cachedOnly == onlyStored) return;
+        cachedStored = countStored();
+        cachedRows = buildRows(all, cachedStored);
+        cachedFuel = countFuel();
+        cachedPending = countPending(cachedStored);
+        cachedVersion = menu.clientVersion();
+        cachedStateVersion = menu.clientStateVersion();
+        cachedOptions = all;
+        cachedQuery = query;
+        cachedOnly = onlyStored;
+    }
+
+    private Map<Identifier, Long> countStored() {
         Map<Identifier, Long> counts = new HashMap<>();
         for (Map.Entry<ItemKey, Long> entry : menu.clientItems().entrySet()) {
             counts.merge(BuiltInRegistries.ITEM.getKey(entry.getKey().template().getItem()), entry.getValue(), Long::sum);
@@ -111,10 +161,8 @@ public final class SmeltPanel extends Panel {
         return menu.clientConfig().fuels();
     }
 
-    private List<SmeltOption> rows() {
-        List<SmeltOption> all = menu.clientSmeltOptions();
+    private List<SmeltOption> buildRows(List<SmeltOption> all, Map<Identifier, Long> stored) {
         if (all == null) return List.of();
-        Map<Identifier, Long> stored = storedCounts();
         String q = query.toLowerCase(Locale.ROOT).strip();
         List<SmeltOption> here = new ArrayList<>();
         List<SmeltOption> rest = new ArrayList<>();
@@ -133,8 +181,8 @@ public final class SmeltPanel extends Panel {
         return new ItemStack(BuiltInRegistries.ITEM.getValue(id));
     }
 
-    private static String name(Identifier id) {
-        return stack(id).getHoverName().getString();
+    private String name(Identifier id) {
+        return names.computeIfAbsent(id, i -> stack(i).getHoverName().getString());
     }
 
     private int maxOffset(int count) {
@@ -146,8 +194,7 @@ public final class SmeltPanel extends Panel {
         return level == null ? 0 : Services.PLATFORM.burnTime(stack, level);
     }
 
-    /** About how many items the chosen fuel in the chest, plus the heat left, can still melt. */
-    private long fuelInChest() {
+    private long countFuel() {
         long ticks = menu.clientSmelting().heat();
         for (Map.Entry<ItemKey, Long> entry : menu.clientItems().entrySet()) {
             ItemStack template = entry.getKey().template();
@@ -157,9 +204,7 @@ public final class SmeltPanel extends Panel {
         return ticks / STANDARD_COOK;
     }
 
-    /** Items switched on and stored above their "leave" amount: what is still to smelt. */
-    private long pending() {
-        Map<Identifier, Long> stored = storedCounts();
+    private long countPending(Map<Identifier, Long> stored) {
         long total = 0;
         for (CompactRule rule : menu.clientConfig().smelt()) {
             if (!rule.enabled()) continue;
