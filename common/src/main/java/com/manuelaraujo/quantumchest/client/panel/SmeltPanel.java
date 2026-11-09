@@ -3,14 +3,12 @@ package com.manuelaraujo.quantumchest.client.panel;
 import com.manuelaraujo.quantumchest.automation.SmeltOption;
 import com.manuelaraujo.quantumchest.menu.QuantumChestMenu;
 import com.manuelaraujo.quantumchest.network.MachinePayloads;
-import com.manuelaraujo.quantumchest.platform.Services;
 import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
 import com.manuelaraujo.quantumchest.storage.ItemMatch;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -189,9 +187,8 @@ public final class SmeltPanel extends Panel {
         return Math.max(0, count - ROWS);
     }
 
-    private static int burnTime(ItemStack stack) {
-        var level = Minecraft.getInstance().level;
-        return level == null ? 0 : Services.PLATFORM.burnTime(stack, level);
+    private int burnTime(ItemStack stack) {
+        return menu.clientBurnTime(stack);
     }
 
     private long countFuel() {

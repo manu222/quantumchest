@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:superposition_terminal"
+        "recipes": "quantumchest:superposition_terminal"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

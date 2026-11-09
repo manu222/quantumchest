@@ -15,6 +15,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
@@ -141,7 +142,7 @@ public class QuantumEntanglerItem extends Item {
         stack.remove(ModDataComponents.STORED_CHEST.get());
         // A second tunnel (or any repeated upgrade) would only waste a slot: it goes back to the player
         for (ItemStack upgrade : spare) {
-            if (!player.getInventory().add(upgrade)) player.drop(upgrade, false);
+            if (!player.getInventory().add(upgrade)) player.drop(upgrade, false, Prediction.SERVER_ONLY);
         }
         if (!spare.isEmpty()) {
             player.sendSystemMessage(Component.translatable("message.quantumchest.entangler.returned", spare.size()));

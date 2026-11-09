@@ -17,7 +17,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -124,15 +123,11 @@ public abstract class Panel {
     }
 
     protected static boolean shiftDown() {
-        long window = Minecraft.getInstance().getWindow().handle();
-        return GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+        return Minecraft.getInstance().hasShiftDown();
     }
 
     protected static boolean ctrlDown() {
-        long window = Minecraft.getInstance().getWindow().handle();
-        return GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+        return Minecraft.getInstance().hasControlDown();
     }
 
     protected void background(GuiGraphicsExtractor graphics) {

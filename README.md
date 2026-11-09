@@ -2,7 +2,7 @@
 
 A Minecraft mod with one chest for everything. Any item, any amount, in a single block, with tabs and a search bar. Capacity isn't free: you upgrade the chest tier by tier until it holds an unlimited amount, and you fill its upgrade slots with things like a magnet, a compactor or a crafting grid.
 
-Built for **Minecraft 26.2** on both **Forge** and **NeoForge** from the same codebase.
+Built for **Minecraft 26.3** on both **Forge** and **NeoForge** from the same codebase.
 
 ## What it does
 
@@ -51,7 +51,7 @@ The server writes `config/quantumchest.json` the first time a world loads. It ha
 
 ## Building
 
-You need a JDK 17 or newer to run Gradle. The JDK 25 that Minecraft 26.2 needs is downloaded automatically.
+You need a JDK 17 or newer to run Gradle. The JDK 25 that Minecraft 26.3 needs is downloaded automatically.
 
 ```
 ./gradlew build

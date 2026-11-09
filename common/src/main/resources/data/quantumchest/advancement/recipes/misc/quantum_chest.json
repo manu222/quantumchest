@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:quantum_chest"
+        "recipes": "quantumchest:quantum_chest"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

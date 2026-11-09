@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:crafting_upgrade"
+        "recipes": "quantumchest:crafting_upgrade"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

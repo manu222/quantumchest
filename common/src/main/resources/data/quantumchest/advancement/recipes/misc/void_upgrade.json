@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:void_upgrade"
+        "recipes": "quantumchest:void_upgrade"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:smelting_upgrade"
+        "recipes": "quantumchest:smelting_upgrade"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

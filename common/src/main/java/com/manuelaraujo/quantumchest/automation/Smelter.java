@@ -209,7 +209,7 @@ public final class Smelter {
             if (key == null) continue;
             // Something that is also on the melt list (logs into charcoal) still burns if chosen as fuel
             ItemStack template = key.template();
-            int burn = Services.PLATFORM.burnTime(template, level);
+            int burn = Fuel.burnTime(template, level);
             if (burn <= 0 || inventory.remove(key, 1) <= 0) continue;
             ItemStack remainder = Services.PLATFORM.craftingRemainder(template);
             if (!remainder.isEmpty()) inventory.insert(remainder, remainder.getCount(), Long.MAX_VALUE);

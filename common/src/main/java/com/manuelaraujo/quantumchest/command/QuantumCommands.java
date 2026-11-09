@@ -16,6 +16,7 @@ import net.minecraft.commands.arguments.UuidArgument;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.BlockItemStateProperties;
 
@@ -83,7 +84,7 @@ public final class QuantumCommands {
         chest.set(ModDataComponents.STORAGE_ID.get(), storage.id());
         chest.set(DataComponents.BLOCK_STATE, BlockItemStateProperties.EMPTY.with(QuantumChestBlock.TIER, storage.tier()));
         if (!target.getInventory().add(chest)) {
-            target.drop(chest, false);
+            target.drop(chest, false, Prediction.SERVER_ONLY);
         }
         source.sendSuccess(() -> Component.translatable("command.quantumchest.give.done",
                 target.getName(), id.toString()), true);

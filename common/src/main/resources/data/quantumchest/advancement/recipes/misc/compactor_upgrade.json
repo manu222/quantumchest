@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:compactor_upgrade"
+        "recipes": "quantumchest:compactor_upgrade"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

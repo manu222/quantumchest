@@ -7,6 +7,8 @@ import com.manuelaraujo.quantumchest.automation.SmeltOption;
 import com.manuelaraujo.quantumchest.automation.Smelter;
 import com.manuelaraujo.quantumchest.automation.FaceMode;
 import com.manuelaraujo.quantumchest.automation.FaceSetting;
+import com.manuelaraujo.quantumchest.automation.Fuel;
+import com.manuelaraujo.quantumchest.automation.FuelTime;
 import com.manuelaraujo.quantumchest.automation.RejectAction;
 import com.manuelaraujo.quantumchest.block.ChestNetwork;
 import com.manuelaraujo.quantumchest.block.ChestTier;
@@ -36,6 +38,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.Container;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
@@ -118,6 +121,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
     private SyncStatePayload.Smelting clientSmelting = SyncStatePayload.Smelting.NONE;
     private List<CompactOption> clientCompactOptions = null;
     private List<SmeltOption> clientSmeltOptions = null;
+    private Map<Identifier, Integer> clientFuelTimes = Map.of();
 
     // Crafting upgrade: a real 3x3 and its result. The items in it are real
     // items, so they go back to the chest when the screen closes.
@@ -458,7 +462,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             moveItemStackTo(taken, 0, PLAYER_SLOTS, true);
             // Checked above, so this only happens if something changed in between
             if (!taken.isEmpty()) {
-                player.drop(taken, false);
+                player.drop(taken, false, Prediction.SERVER_ONLY);
                 break;
             }
         }
@@ -487,7 +491,7 @@ public class QuantumChestMenu extends AbstractContainerMenu {
             stack.shrink((int) stored);
             if (stored > 0) storage.markChanged();
         }
-        if (!stack.isEmpty() && !player.getInventory().add(stack)) player.drop(stack, false);
+        if (!stack.isEmpty() && !player.getInventory().add(stack)) player.drop(stack, false, Prediction.SERVER_ONLY);
     }
 
     private void emptyCraftGrid(Player player) {
@@ -767,13 +771,13 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         QuantumStorage storage = managed(player);
         if (storage == null || !(player.level() instanceof ServerLevel level)) return;
         // Only things that actually burn
-        storage.setFuels(fuels.stream().filter(f -> f.isValid() && Services.PLATFORM.burnTime(f.icon(), level) > 0).toList());
+        storage.setFuels(fuels.stream().filter(f -> f.isValid() && Fuel.burnTime(f.icon(), level) > 0).toList());
         broadcastChanges();
     }
 
     public void sendSmeltOptions(ServerPlayer player) {
         if (host == null || !stillValid(player) || !(player.level() instanceof ServerLevel level)) return;
-        Services.NETWORK.sendToPlayer(player, new MachinePayloads.SmeltOptions(containerId, capped(Smelter.options(level))));
+        Services.NETWORK.sendToPlayer(player, new MachinePayloads.SmeltOptions(containerId, capped(Smelter.options(level)), Fuel.table(level)));
     }
 
     /** Huge modpacks could list more than one packet takes. The first ones are vanilla's, the rest by mod. */
@@ -855,8 +859,17 @@ public class QuantumChestMenu extends AbstractContainerMenu {
         return clientCompactOptions;
     }
 
-    public void applySmeltOptions(List<SmeltOption> options) {
+    public void applySmeltOptions(List<SmeltOption> options, List<FuelTime> fuels) {
         clientSmeltOptions = List.copyOf(options);
+        Map<Identifier, Integer> times = new HashMap<>();
+        for (FuelTime fuel : fuels) times.put(fuel.item(), fuel.ticks());
+        clientFuelTimes = times;
+    }
+
+    /** Ticks this item burns for, as the server says. 0 if it isn't fuel or the table hasn't arrived. */
+    public int clientBurnTime(ItemStack stack) {
+        if (stack.isEmpty()) return 0;
+        return clientFuelTimes.getOrDefault(BuiltInRegistries.ITEM.getKey(stack.getItem()), 0);
     }
 
     /** Null until the server answered. */

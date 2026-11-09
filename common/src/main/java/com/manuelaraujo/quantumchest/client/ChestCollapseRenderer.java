@@ -61,8 +61,8 @@ public class ChestCollapseRenderer extends EntityRenderer<ChestCollapseEntity, F
         poseStack.translate(0, 0.5, 0);
         // The spin speeds up as it shrinks: the angle grows with the square of the time
         float spin = p * p * 14f;
-        poseStack.mulPose(Axis.YP.rotation(spin));
-        poseStack.mulPose(Axis.XP.rotation(p * 0.6f));
+        poseStack.rotate(Axis.YP, spin);
+        poseStack.rotate(Axis.XP, p * 0.6f);
         poseStack.scale(scale, scale, scale);
         poseStack.translate(-0.5, -0.5, -0.5);
         collector.submitMovingBlock(poseStack, state.movingBlockRenderState, state.outlineColor);

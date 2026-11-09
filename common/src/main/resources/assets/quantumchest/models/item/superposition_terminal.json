@@ -428,7 +428,7 @@
         8.5
       ],
       "light_emission": 15,
-      "shade": false,
+      "shade_direction_override": "up",
       "faces": {
         "south": {
           "uv": [
@@ -589,7 +589,7 @@
         8.5
       ],
       "light_emission": 15,
-      "shade": false,
+      "shade_direction_override": "up",
       "faces": {
         "north": {
           "uv": [

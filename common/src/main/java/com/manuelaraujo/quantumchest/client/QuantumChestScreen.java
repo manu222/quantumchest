@@ -21,6 +21,7 @@ import com.manuelaraujo.quantumchest.registry.ModItems;
 import com.manuelaraujo.quantumchest.storage.CustomTab;
 import com.manuelaraujo.quantumchest.storage.FilterRules;
 import com.manuelaraujo.quantumchest.storage.ItemKey;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -41,7 +42,6 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -907,8 +907,7 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
     // ---- input -------------------------------------------------------------
 
     private void updateScrollbarDrag(int mouseX, int mouseY) {
-        boolean mouseDown = GLFW.glfwGetMouseButton(Minecraft.getInstance().getWindow().handle(),
-                GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_RELEASE;
+        boolean mouseDown = Minecraft.getInstance().mouseHandler.isLeftPressed();
         if (!wasMouseDown && mouseDown && !panelMode() && isHovering(SCROLL_X - 1, SCROLL_Y - 1, 14, scrollHeight() + 2, mouseX, mouseY)) {
             scrolling = hiddenRows() > 0;
         }
@@ -919,11 +918,23 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
         }
     }
 
+    /**
+     * 0 for the left button, 1 for the right one, 2 for the middle one. Since
+     * 26.3 (SDL) the game numbers them 1, 3 and 2; the screen and the panels
+     * keep working with the old numbers.
+     */
+    private static int buttonIndex(int button) {
+        if (button == InputConstants.MOUSE_BUTTON_LEFT) return 0;
+        if (button == InputConstants.MOUSE_BUTTON_RIGHT) return 1;
+        if (button == InputConstants.MOUSE_BUTTON_MIDDLE) return 2;
+        return -1;
+    }
+
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         double x = event.x();
         double y = event.y();
-        int button = event.button();
+        int button = buttonIndex(event.button());
 
         if (numberTarget != null) {
             if (numberBox.isMouseOver(x, y)) return super.mouseClicked(event, doubleClick);
@@ -1205,18 +1216,18 @@ public class QuantumChestScreen extends AbstractContainerScreen<QuantumChestMenu
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        boolean enter = event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER;
+        boolean enter = event.isConfirmation();
         if (numberTarget != null) {
             if (enter) {
                 commitNumber();
                 return true;
             }
-            if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+            if (event.isEscape()) {
                 cancelNumber();
                 return true;
             }
         }
-        if (event.key() == GLFW.GLFW_KEY_ESCAPE) {
+        if (event.isEscape()) {
             if (mode != Mode.NORMAL) {
                 setMode(Mode.NORMAL);
             } else {

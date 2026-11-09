@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:refill_upgrade"
+        "recipes": "quantumchest:refill_upgrade"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

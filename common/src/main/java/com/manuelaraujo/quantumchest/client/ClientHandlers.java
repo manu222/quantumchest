@@ -36,7 +36,7 @@ public final class ClientHandlers {
 
     public static void onSmeltOptions(MachinePayloads.SmeltOptions payload) {
         QuantumChestMenu menu = menu(payload.containerId());
-        if (menu != null) menu.applySmeltOptions(payload.options());
+        if (menu != null) menu.applySmeltOptions(payload.options(), payload.fuels());
     }
 
     public static void onSyncState(SyncStatePayload payload) {

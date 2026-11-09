@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:advanced_upgrade_kit"
+        "recipes": "quantumchest:advanced_upgrade_kit"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

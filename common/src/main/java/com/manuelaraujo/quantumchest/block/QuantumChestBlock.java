@@ -7,12 +7,12 @@ import com.manuelaraujo.quantumchest.item.QuantumEntanglerItem;
 import com.manuelaraujo.quantumchest.item.TierUpgradeItem;
 import com.manuelaraujo.quantumchest.registry.ModBlockEntities;
 import com.manuelaraujo.quantumchest.storage.QuantumStorage;
-import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.stats.Stats;
@@ -48,7 +48,6 @@ import java.util.List;
  * the world storage the block entity points to.
  */
 public class QuantumChestBlock extends BaseEntityBlock {
-    public static final MapCodec<QuantumChestBlock> CODEC = simpleCodec(QuantumChestBlock::new);
     public static final EnumProperty<Direction> FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final EnumProperty<ChestTier> TIER = EnumProperty.create("tier", ChestTier.class);
     /** Someone has the chest screen open: the front switches to its livelier animation. */
@@ -60,11 +59,6 @@ public class QuantumChestBlock extends BaseEntityBlock {
                 .setValue(FACING, Direction.NORTH)
                 .setValue(TIER, ChestTier.BASIC)
                 .setValue(OPEN, false));
-    }
-
-    @Override
-    protected MapCodec<? extends BaseEntityBlock> codec() {
-        return CODEC;
     }
 
     @Override
@@ -171,13 +165,11 @@ public class QuantumChestBlock extends BaseEntityBlock {
      * animation, which lets them go when the black hole closes.
      */
     @Override
-    public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, BlockEntity blockEntity,
-                              ItemStack tool) {
+    public void playerDestroy(ServerLevel level, ServerPlayer player, BlockPos pos, BlockState state,
+                              BlockEntity blockEntity, ItemStack tool) {
         player.awardStat(Stats.BLOCK_MINED.get(this));
         player.causeFoodExhaustion(0.005f);
-        if (level instanceof ServerLevel server) {
-            ChestCollapseEntity.spawn(server, pos, state, getDrops(state, server, pos, blockEntity, player, tool));
-        }
+        ChestCollapseEntity.spawn(level, pos, state, getDrops(state, level, pos, blockEntity, player, tool));
     }
 
     // ---- opening the chest -------------------------------------------------

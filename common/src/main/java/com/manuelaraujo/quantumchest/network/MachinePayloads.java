@@ -1,6 +1,7 @@
 package com.manuelaraujo.quantumchest.network;
 
 import com.manuelaraujo.quantumchest.QuantumChest;
+import com.manuelaraujo.quantumchest.automation.FuelTime;
 import com.manuelaraujo.quantumchest.automation.SmeltOption;
 import com.manuelaraujo.quantumchest.storage.CompactRule;
 import com.manuelaraujo.quantumchest.storage.ItemMatch;
@@ -74,11 +75,13 @@ public final class MachinePayloads {
     }
 
     /** Server to client: everything the furnace recipes can melt. */
-    public record SmeltOptions(int containerId, List<SmeltOption> options) implements CustomPacketPayload {
+    /** Server to client: what can be smelted, and how long each fuel burns (only the server can work that out). */
+    public record SmeltOptions(int containerId, List<SmeltOption> options, List<FuelTime> fuels) implements CustomPacketPayload {
         public static final Type<SmeltOptions> TYPE = new Type<>(QuantumChest.id("smelt_options"));
         public static final StreamCodec<RegistryFriendlyByteBuf, SmeltOptions> STREAM_CODEC = StreamCodec.composite(
                 ByteBufCodecs.VAR_INT, SmeltOptions::containerId,
                 SmeltOption.STREAM_CODEC.apply(ByteBufCodecs.list(8192)), SmeltOptions::options,
+                FuelTime.STREAM_CODEC.apply(ByteBufCodecs.list(8192)), SmeltOptions::fuels,
                 SmeltOptions::new);
 
         @Override

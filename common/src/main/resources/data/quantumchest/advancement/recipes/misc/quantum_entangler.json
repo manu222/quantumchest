@@ -13,7 +13,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "quantumchest:quantum_entangler"
+        "recipes": "quantumchest:quantum_entangler"
       },
       "trigger": "minecraft:recipe_unlocked"
     }
